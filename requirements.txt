@@ -4,3 +4,5 @@ google-genai
 google-cloud-storage
 piexif
 opencv-python
+fal-client
+soundfile
