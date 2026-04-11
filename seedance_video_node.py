@@ -168,7 +168,7 @@ class DigitDanceVideo:
         if not os.environ.get("FAL_KEY"):
             raise ValueError(
                 "FAL_KEY environment variable is not set. "
-                "Export FAL_KEY=<your-key> on your GCP instance before starting ComfyUI."
+                "Export FAL_KEY=<your-key> in the environment before starting ComfyUI."
             )
         if not prompt or not prompt.strip():
             raise ValueError("Prompt is required.")
@@ -212,12 +212,15 @@ class DigitDanceVideo:
         app_id = SEEDANCE_APPS[model][mode]
         logger.info(f"[DigitDance] Mode: {mode} | App: {app_id}")
 
-        # Build arguments
+        # Build arguments.
+        # fal.ai Seedance API expects `duration` as a string enum:
+        # one of "auto" or "4".."15". -1 is our sentinel for "auto".
+        duration_arg = "auto" if duration_seconds < 4 else str(duration_seconds)
         args = {
             "prompt": prompt.strip(),
             "resolution": resolution,
             "aspect_ratio": aspect_ratio,
-            "duration": duration_seconds,
+            "duration": duration_arg,
             "generate_audio": generate_audio,
         }
         if seed > 0:
@@ -335,7 +338,7 @@ class DigitDanceVideo:
             f"Mode: {mode}",
             f"Resolution: {args.get('resolution')}",
             f"Aspect: {args.get('aspect_ratio')}",
-            f"Duration: {args.get('duration')}s",
+            f"Duration: {args.get('duration')}" + ("" if args.get('duration') == "auto" else "s"),
             f"Audio: {args.get('generate_audio')}",
             f"Videos generated: {len(video_paths)}",
         ]
