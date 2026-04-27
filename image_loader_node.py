@@ -77,8 +77,11 @@ class DigitImageLoader:
     @classmethod
     def INPUT_TYPES(cls):
         input_dir = folder_paths.get_input_directory()
-        files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
-        files = folder_paths.filter_files_content_types(files, ["image"])
+        try:
+            files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
+            files = folder_paths.filter_files_content_types(files, ["image"])
+        except (FileNotFoundError, OSError):
+            files = []
 
         available_roots = [r for r in PROJEKTS_ROOTS if os.path.isdir(r)]
         if not available_roots:
