@@ -38,7 +38,7 @@ SEEDANCE_APPS = {
 }
 
 MODELS = list(SEEDANCE_APPS.keys())
-RESOLUTIONS = ["480p", "720p"]
+RESOLUTIONS = ["480p", "720p", "1080p"]
 ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
 
 MAX_REFERENCE_IMAGES = 9
