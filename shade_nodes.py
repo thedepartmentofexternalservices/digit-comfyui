@@ -1,4 +1,9 @@
-"""Shade.inc PROJEKTS nodes — project picker and output saver."""
+"""Shade.inc PROJEKTS nodes — project picker and output saver.
+
+Each Shade project is a separately-mounted filespace that appears as a
+subfolder under the standard PROJEKTS root (e.g. /Volumes/saint/goose/PROJEKTS/).
+This node reuses the same PROJEKTS_ROOTS detection as all other DIGIT nodes.
+"""
 
 import logging
 import os
@@ -8,39 +13,9 @@ import shutil
 import numpy as np
 from PIL import Image
 
+from .projekts_utils import PROJEKTS_ROOTS, scan_projects
+
 logger = logging.getLogger("DigitShade")
-
-# Shade.inc mount candidates — first one found wins.
-# Primary: /media/_Volumes_shade_goose (symlinked to /Volumes/shade/goose)
-_SHADE_MOUNT_CANDIDATES = [
-    "/media/_Volumes_shade_goose",
-    "/Volumes/shade/goose",
-    "/media/shade-goose",
-]
-
-_PROJECT_RE = re.compile(r"^\d{5}_")
-
-
-def _shade_mount():
-    for p in _SHADE_MOUNT_CANDIDATES:
-        if os.path.isdir(p):
-            return p
-    return _SHADE_MOUNT_CANDIDATES[0]
-
-
-def _shade_projekts_root():
-    return os.path.join(_shade_mount(), "PROJEKTS")
-
-
-def _scan_shade_projects():
-    root = _shade_projekts_root()
-    if not os.path.isdir(root):
-        return ["(shade not mounted)"]
-    folders = [
-        d for d in sorted(os.listdir(root))
-        if os.path.isdir(os.path.join(root, d)) and _PROJECT_RE.match(d)
-    ]
-    return folders if folders else ["(no projects found)"]
 
 
 def _next_index(output_dir, prefix, ext):
@@ -56,7 +31,11 @@ def _next_index(output_dir, prefix, ext):
 
 
 class ShadeProjects:
-    """Pick a Shade.inc PROJEKTS project and output its path as a string."""
+    """Pick a Shade PROJEKTS project and output its path as a string.
+
+    Each project is a separately-mounted Shade filespace appearing under
+    the standard PROJEKTS root (e.g. /Volumes/saint/goose/PROJEKTS/).
+    """
 
     CATEGORY = "DIGIT/Shade"
     RETURN_TYPES = ("STRING",)
@@ -65,9 +44,14 @@ class ShadeProjects:
 
     @classmethod
     def INPUT_TYPES(cls):
-        projects = _scan_shade_projects()
+        available_roots = [r for r in PROJEKTS_ROOTS if os.path.isdir(r)]
+        if not available_roots:
+            available_roots = PROJEKTS_ROOTS
+        first_root = available_roots[0]
+        projects = scan_projects(first_root)
         return {
             "required": {
+                "projekts_root": (available_roots,),
                 "project": (projects,),
             }
         }
@@ -78,12 +62,10 @@ class ShadeProjects:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
-        # Re-evaluate each run so the dropdown reflects newly added projects.
         return float("nan")
 
-    def get_project_path(self, project):
-        root = _shade_projekts_root()
-        project_path = os.path.join(root, project)
+    def get_project_path(self, projekts_root, project):
+        project_path = os.path.join(projekts_root, project)
         return (project_path,)
 
 
