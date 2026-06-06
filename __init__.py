@@ -140,3 +140,12 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 
 WEB_DIRECTORY = "./web"
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
+
+# Initialize GCP Compute Broker execution hook
+try:
+    from .broker_hook import init_broker_hook
+    init_broker_hook()
+except Exception as _e:
+    import logging
+    logging.getLogger("DigitBrokerHook").error(f"Failed to load broker execution hook: {_e}")
+
