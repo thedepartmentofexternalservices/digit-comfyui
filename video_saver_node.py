@@ -35,7 +35,7 @@ class DigitVideoSaver:
                 "task": ("STRING", {"default": "comp"}),
                 "start_frame": ("INT", {"default": 1001, "min": 0, "max": 99999999, "step": 1}),
                 "frame_pad": ("INT", {"default": 4, "min": 1, "max": 8, "step": 1}),
-                "save_workflow": (["api", "ui", "ui + api", "none"],),
+                "save_workflow": (["ui", "api", "ui + api", "none"],),
             },
             "optional": {
                 "video": ("VIDEO",),

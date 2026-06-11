@@ -437,7 +437,7 @@ Save videos to the same VFX-pipeline folder structure as the Image Saver. Accept
 | task | STRING | comp | Task name. |
 | start_frame | INT | 1001 | Starting frame number. |
 | frame_pad | INT | 4 | Frame number padding. |
-| save_workflow | COMBO | api | Save workflow metadata as JSON sidecar. |
+| save_workflow | COMBO | ui | Save workflow metadata as JSON sidecar: "ui", "api", "ui + api", or "none". |
 | video | VIDEO | — | Single video input (from Veo node's VIDEO output). |
 | video_paths | VEO_PATHS | — | Batch video paths (from Veo node's VEO_PATHS output). Saves all videos with incrementing frame numbers. |
 
