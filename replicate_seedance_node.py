@@ -24,9 +24,8 @@ logger = logging.getLogger("DigitReplicateSeedance")
 
 REPLICATE_MODEL = "bytedance/seedance-2.0"
 
-# Replicate's seedance-2.0 only exposes 480p/720p (no 1080p like fal.ai),
-# and adds "adaptive" to the aspect ratio set.
-RESOLUTIONS = ["480p", "720p"]
+# Replicate's seedance-2.0 supports 480p through 4k; 4k is 10-bit H.265/HEVC.
+RESOLUTIONS = ["480p", "720p", "1080p", "4k"]
 ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]
 
 MAX_REFERENCE_IMAGES = 9
@@ -98,7 +97,10 @@ class DigitReplicateSeedance:
                     "multiline": True,
                     "placeholder": "Describe the video. Use double quotes for spoken dialogue.",
                 }),
-                "resolution": (RESOLUTIONS, {"default": "720p"}),
+                "resolution": (RESOLUTIONS, {
+                    "default": "720p",
+                    "tooltip": "4k output is 10-bit H.265/HEVC.",
+                }),
                 "aspect_ratio": (ASPECT_RATIOS, {"default": "16:9"}),
                 "duration_seconds": ("INT", {
                     "default": 5, "min": -1, "max": 15,

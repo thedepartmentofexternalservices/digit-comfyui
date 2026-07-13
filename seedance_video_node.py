@@ -38,12 +38,23 @@ SEEDANCE_APPS = {
 }
 
 MODELS = list(SEEDANCE_APPS.keys())
-RESOLUTIONS = ["480p", "720p", "1080p"]
+RESOLUTIONS = ["480p", "720p", "1080p", "4k"]
+FAST_MAX_RESOLUTIONS = {"480p", "720p"}
 ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
 
 MAX_REFERENCE_IMAGES = 9
 MAX_REFERENCE_VIDEOS = 3
 MAX_REFERENCE_AUDIOS = 3
+
+
+def _is_content_policy_error(error):
+    """True when fal rejected the request on content policy (422), not transient."""
+    text = str(error).lower()
+    return (
+        "content_policy_violation" in text
+        or "content policy" in text
+        or "likenesses of real people" in text
+    )
 
 
 def _tensor_to_png_bytes(tensor):
@@ -127,7 +138,10 @@ class DigitDanceVideo:
                     "placeholder": "Describe the video. In reference mode, use @image1, @video1, @audio1 to cite inputs.",
                 }),
                 "model": (MODELS, {"default": "seedance-2.0"}),
-                "resolution": (RESOLUTIONS, {"default": "720p"}),
+                "resolution": (RESOLUTIONS, {
+                    "default": "720p",
+                    "tooltip": "4k requires seedance-2.0 (not fast). 4k output is 10-bit H.265/HEVC.",
+                }),
                 "aspect_ratio": (ASPECT_RATIOS, {"default": "16:9"}),
                 "duration_seconds": ("INT", {
                     "default": 5, "min": -1, "max": 15,
@@ -200,6 +214,12 @@ class DigitDanceVideo:
             )
         if has_last_frame and not has_first_frame:
             raise ValueError("last_frame requires first_frame to be connected.")
+        if model == "seedance-2.0-fast" and resolution not in FAST_MAX_RESOLUTIONS:
+            raise ValueError(
+                f"Resolution '{resolution}' is not supported by seedance-2.0-fast "
+                f"(max {', '.join(sorted(FAST_MAX_RESOLUTIONS))}). "
+                "Switch to seedance-2.0 for 1080p or 4k output."
+            )
 
         # Detect mode
         if has_refs:
@@ -249,7 +269,21 @@ class DigitDanceVideo:
                 ]
 
         logger.info(f"[DigitDance] Submitting request to {app_id}...")
-        result = self._submit_with_retry(fal_client, app_id, args)
+        try:
+            result = self._submit_with_retry(fal_client, app_id, args)
+        except Exception as submit_err:
+            if _is_content_policy_error(submit_err):
+                logger.warning(f"[DigitDance] Content policy block: {submit_err}")
+                status = "\n".join([
+                    f"Model: {model}",
+                    f"Mode: {mode}",
+                    "BLOCKED: fal.ai safety filter rejected this request.",
+                    "Seedance won't process images/videos containing likenesses of "
+                    "real people or private information. Swap or remove those inputs.",
+                    f"Detail: {submit_err}",
+                ])
+                return (None, [], status)
+            raise
 
         video_paths = self._download_results(result)
         if not video_paths:
@@ -277,6 +311,10 @@ class DigitDanceVideo:
             except Exception as e:
                 last_error = e
                 error_str = str(e)
+                # Content policy blocks are permanent; retrying reruns full
+                # inference on fal's side (~4 min per attempt) and fails again.
+                if _is_content_policy_error(e):
+                    raise
                 if "429" in error_str or "503" in error_str or "rate" in error_str.lower():
                     delay = base_delay * (2 ** attempt)
                     logger.warning(
