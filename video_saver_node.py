@@ -90,26 +90,29 @@ class DigitVideoSaver:
                 else:
                     logger.warning(f"[DigitVideoSaver] Source not found: {src_path}")
 
-        # If only VIDEO is connected (single video), save that
+        # VIDEO can arrive as one item or a ComfyUI list output. Save every item.
         elif video is not None:
-            filename = f"{prefix}_{shot}_{task}.{frame_num:0{frame_pad}d}.{ext}"
-            filepath = os.path.join(target_dir, filename)
+            videos = video if isinstance(video, (list, tuple)) else [video]
+            for i, video_item in enumerate(videos):
+                current_frame = frame_num + i
+                filename = f"{prefix}_{shot}_{task}.{current_frame:0{frame_pad}d}.{ext}"
+                filepath = os.path.join(target_dir, filename)
 
-            try:
-                source = video.get_stream_source()
-                if isinstance(source, str) and os.path.isfile(source):
-                    shutil.copy2(source, filepath)
-                else:
-                    video.save_to(filepath)
-            except Exception:
                 try:
-                    video.save_to(filepath)
-                except Exception as e:
-                    logger.error(f"[DigitVideoSaver] SAVE FAILED: {e}", exc_info=True)
-                    raise
+                    source = video_item.get_stream_source()
+                    if isinstance(source, str) and os.path.isfile(source):
+                        shutil.copy2(source, filepath)
+                    else:
+                        video_item.save_to(filepath)
+                except Exception:
+                    try:
+                        video_item.save_to(filepath)
+                    except Exception as e:
+                        logger.error(f"[DigitVideoSaver] SAVE FAILED: {e}", exc_info=True)
+                        raise
 
-            logger.info(f"[DigitVideoSaver] Saved: {filepath}")
-            saved_paths.append(filepath)
+                logger.info(f"[DigitVideoSaver] Saved: {filepath}")
+                saved_paths.append(filepath)
 
         else:
             raise ValueError("No video input connected. Connect either 'video' or 'video_paths'.")

@@ -6,6 +6,7 @@ and stateful follow-up edits via previous_interaction_id.
 """
 
 import base64
+import copy
 import logging
 import os
 import time
@@ -44,6 +45,13 @@ class DigitOmniVideo:
                 "model": (cls.MODELS, {"default": cls.MODELS[0]}),
                 "aspect_ratio": (["16:9", "9:16"], {"default": "16:9"}),
                 "duration_seconds": ("INT", {"default": 8, "min": 3, "max": 10, "step": 1}),
+                "sample_count": ("INT", {
+                    "default": 1,
+                    "min": 1,
+                    "max": 8,
+                    "step": 1,
+                    "tooltip": "Number of video jobs to submit before polling. Jobs run concurrently, subject to Google quota.",
+                }),
                 "task": (cls.TASKS, {"default": "auto"}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 2147483647}),
                 "gcp_project_id": ("STRING", {
@@ -72,6 +80,7 @@ class DigitOmniVideo:
 
     RETURN_TYPES = ("VIDEO", "VIDEO_PATHS", "STRING", "STRING")
     RETURN_NAMES = ("video", "video_paths", "status", "interaction_id")
+    OUTPUT_IS_LIST = (True, False, False, False)
     FUNCTION = "generate"
     CATEGORY = "DIGIT"
 
@@ -88,6 +97,7 @@ class DigitOmniVideo:
         model,
         aspect_ratio,
         duration_seconds,
+        sample_count,
         task,
         seed,
         gcp_project_id="",
@@ -164,7 +174,10 @@ class DigitOmniVideo:
 
         is_edit = mode == "edit"
 
-        response_format = {"type": "video"}
+        response_format = {
+            "type": "video",
+            "duration": f"{duration_seconds}s",
+        }
         if not is_edit:
             response_format["aspect_ratio"] = aspect_ratio
 
@@ -185,7 +198,7 @@ class DigitOmniVideo:
             "input": input_payload,
             "response_format": response_format,
             "store": store,
-            "background": background,
+            "background": background or sample_count > 1,
         }
 
         generation_config = {}
@@ -201,16 +214,47 @@ class DigitOmniVideo:
         if generation_config:
             create_kwargs["generation_config"] = generation_config
 
-        interaction = self._create_with_retry(client, create_kwargs)
-        interaction = self._wait_for_completion(client, interaction)
+        interactions = []
+        for index in range(sample_count):
+            job_kwargs = copy.deepcopy(create_kwargs)
+            if seed > 0:
+                job_kwargs.setdefault("generation_config", {})["seed"] = seed + index
+            interaction = self._create_with_retry(client, job_kwargs)
+            interactions.append(interaction)
+            logger.info(
+                "Submitted Omni video job %d/%d: %s",
+                index + 1,
+                sample_count,
+                interaction.id,
+            )
 
-        if interaction.status == "failed":
-            raise RuntimeError(f"Omni video generation failed: {getattr(interaction, 'error', interaction.status)}")
+        interactions = self._wait_for_all_completion(client, interactions)
 
-        video_paths = self._save_output_video(client, interaction, delivery)
+        video_paths = []
+        completed_interactions = []
+        failed_interactions = []
+        for interaction in interactions:
+            if interaction.status == "completed":
+                paths = self._save_output_video(client, interaction, delivery)
+                if paths:
+                    video_paths.extend(paths)
+                    completed_interactions.append(interaction)
+                else:
+                    failed_interactions.append(
+                        (interaction, "completed without a video output")
+                    )
+            else:
+                error = getattr(interaction, "error", interaction.status)
+                failed_interactions.append((interaction, str(error)))
+
         if not video_paths:
+            failure_text = "; ".join(
+                f"{interaction.id}: {error}"
+                for interaction, error in failed_interactions
+            )
             raise RuntimeError(
-                "Omni returned no videos. The content may have been filtered by safety settings."
+                "Omni returned no videos. The content may have been filtered by "
+                f"safety settings. {failure_text}"
             )
 
         status_parts = [
@@ -220,17 +264,23 @@ class DigitOmniVideo:
             f"Duration: {duration_seconds}s",
             f"Aspect ratio: {aspect_ratio}",
             f"Delivery: {delivery}",
-            f"Interaction ID: {interaction.id}",
+            f"Jobs requested: {sample_count}",
+            f"Jobs completed: {len(completed_interactions)}",
+            f"Jobs failed: {len(failed_interactions)}",
             f"Videos generated: {len(video_paths)}",
         ]
+        for interaction in completed_interactions:
+            status_parts.append(f"Completed interaction: {interaction.id}")
+        for interaction, error in failed_interactions:
+            status_parts.append(f"Failed interaction: {interaction.id}: {error}")
         for i, path in enumerate(video_paths):
             status_parts.append(f"Video {i + 1}: {path}")
 
         return (
-            VideoFromFile(video_paths[0]),
+            [VideoFromFile(path) for path in video_paths],
             video_paths,
             "\n".join(status_parts),
-            interaction.id,
+            "\n".join(interaction.id for interaction in interactions),
         )
 
     def _detect_mode(self, has_previous, has_source_video, has_references, has_first_frame, task):
@@ -326,6 +376,39 @@ class DigitOmniVideo:
             poll_count += 1
             logger.info(f"Polling Omni interaction (attempt {poll_count}, status={interaction.status})...")
         return interaction
+
+    def _wait_for_all_completion(self, client, interactions, poll_interval=10):
+        terminal_statuses = {
+            "completed",
+            "failed",
+            "cancelled",
+            "incomplete",
+            "budget_exceeded",
+        }
+        current = {interaction.id: interaction for interaction in interactions}
+        pending = {
+            interaction.id
+            for interaction in interactions
+            if interaction.status not in terminal_statuses
+        }
+        poll_count = 0
+
+        while pending:
+            time.sleep(poll_interval)
+            poll_count += 1
+            for interaction_id in list(pending):
+                interaction = client.interactions.get(interaction_id)
+                current[interaction_id] = interaction
+                logger.info(
+                    "Polling Omni interaction %s (attempt %d, status=%s)",
+                    interaction_id,
+                    poll_count,
+                    interaction.status,
+                )
+                if interaction.status in terminal_statuses:
+                    pending.remove(interaction_id)
+
+        return [current[interaction.id] for interaction in interactions]
 
     def _save_output_video(self, client, interaction, delivery):
         output_video = getattr(interaction, "output_video", None)
