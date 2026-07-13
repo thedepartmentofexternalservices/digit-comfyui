@@ -224,7 +224,7 @@ class ShadeSave:
             },
             "optional": {
                 "image":       ("IMAGE",),
-                "video_paths": ("VEO_PATHS",),
+                "video_paths": ("VIDEO_PATHS",),
             },
         }
 

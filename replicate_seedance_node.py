@@ -75,7 +75,7 @@ def _audio_to_path(audio_obj, temp_dir):
 
 class DigitReplicateSeedance:
     CATEGORY = "DIGIT"
-    RETURN_TYPES = ("VIDEO", "VEO_PATHS", "STRING")
+    RETURN_TYPES = ("VIDEO", "VIDEO_PATHS", "STRING")
     RETURN_NAMES = ("video", "video_paths", "status")
     FUNCTION = "generate"
 

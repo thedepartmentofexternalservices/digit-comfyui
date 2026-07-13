@@ -70,7 +70,7 @@ class DigitOmniVideo:
             },
         }
 
-    RETURN_TYPES = ("VIDEO", "VEO_PATHS", "STRING", "STRING")
+    RETURN_TYPES = ("VIDEO", "VIDEO_PATHS", "STRING", "STRING")
     RETURN_NAMES = ("video", "video_paths", "status", "interaction_id")
     FUNCTION = "generate"
     CATEGORY = "DIGIT"

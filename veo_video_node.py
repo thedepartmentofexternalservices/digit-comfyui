@@ -67,7 +67,7 @@ class DigitVeoVideo:
             },
         }
 
-    RETURN_TYPES = ("VIDEO", "VEO_PATHS", "STRING")
+    RETURN_TYPES = ("VIDEO", "VIDEO_PATHS", "STRING")
     RETURN_NAMES = ("video", "video_paths", "status")
     FUNCTION = "generate"
     CATEGORY = "DIGIT"
@@ -222,7 +222,7 @@ class DigitVeoVideo:
             status_parts.append(f"Video {i + 1}: {path}")
         status_text = "\n".join(status_parts)
 
-        # Return first video as VIDEO type, all paths as VEO_PATHS
+        # Return first video as VIDEO type, all paths as VIDEO_PATHS
         video_output = VideoFromFile(video_paths[0])
         return (video_output, video_paths, status_text)
 

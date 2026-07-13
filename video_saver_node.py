@@ -39,7 +39,7 @@ class DigitVideoSaver:
             },
             "optional": {
                 "video": ("VIDEO",),
-                "video_paths": ("VEO_PATHS",),
+                "video_paths": ("VIDEO_PATHS",),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -76,7 +76,7 @@ class DigitVideoSaver:
 
         saved_paths = []
 
-        # If video_paths (VEO_PATHS) is connected, save all videos in the batch
+        # If video_paths (VIDEO_PATHS) is connected, save all videos in the batch
         if video_paths and isinstance(video_paths, list) and len(video_paths) > 0:
             for i, src_path in enumerate(video_paths):
                 current_frame = frame_num + i
