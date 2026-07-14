@@ -299,11 +299,18 @@ class DigitDanceVideo:
         seeds = self._build_seeds(seed, int(batch_count))
         jobs = self._run_batch(fal_client, app_id, args, seeds)
 
+        batch_timestamp = int(time.time())
+        batch_uuid = uuid.uuid4().hex[:8]
         video_paths = []
         for job in jobs:
             if job.get("result") is None:
                 continue
-            paths = self._download_results(job["result"])
+            paths = self._download_results(
+                job["result"],
+                batch_timestamp,
+                batch_uuid,
+                job["index"],
+            )
             if paths:
                 job["path"] = paths[0]
                 video_paths.append(paths[0])
@@ -501,7 +508,7 @@ class DigitDanceVideo:
                     error,
                 )
 
-    def _download_results(self, result):
+    def _download_results(self, result, batch_timestamp, batch_uuid, job_index):
         """Extract video URLs from fal response and download to ComfyUI temp dir."""
         temp_dir = folder_paths.get_temp_directory()
         os.makedirs(temp_dir, exist_ok=True)
@@ -518,8 +525,6 @@ class DigitDanceVideo:
             logger.error(f"[DigitDance] Could not extract video URLs from result: {result}")
             return []
 
-        timestamp = int(time.time())
-        unique_id = uuid.uuid4().hex[:8]
         paths = []
 
         for i, item in enumerate(video_items):
@@ -534,7 +539,8 @@ class DigitDanceVideo:
                 continue
 
             local_path = os.path.join(
-                temp_dir, f"dance_{timestamp}_{unique_id}_{i}.mp4"
+                temp_dir,
+                f"dance_{batch_timestamp}_{batch_uuid}_{job_index}.mp4",
             )
             try:
                 urllib.request.urlretrieve(url, local_path)
