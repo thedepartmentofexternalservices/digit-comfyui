@@ -1,8 +1,10 @@
 import base64
+import copy
 import io
 import logging
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import requests as http_requests
@@ -14,6 +16,7 @@ from .gemini_image_models import (
     GEMINI_IMAGE_MODELS,
     DEFAULT_GEMINI_IMAGE_MODEL,
     MODELS_1K_ONLY,
+    MODELS_NO_THINKING,
     RESOLUTIONS,
 )
 
@@ -67,6 +70,21 @@ def _png_bytes_to_tensor(png_bytes):
     return torch.from_numpy(img_np).unsqueeze(0)
 
 
+def _stack_image_batch(tensors):
+    """Concatenate (1,H,W,3) tensors into one (N,H,W,3) batch, resizing mismatches to the first image's size."""
+    if len(tensors) == 1:
+        return tensors[0]
+    target_h, target_w = tensors[0].shape[1], tensors[0].shape[2]
+    resized = []
+    for t in tensors:
+        if t.shape[1] != target_h or t.shape[2] != target_w:
+            img_np = (t[0].cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+            img = Image.fromarray(img_np).resize((target_w, target_h), Image.LANCZOS)
+            t = torch.from_numpy(np.array(img).astype(np.float32) / 255.0).unsqueeze(0)
+        resized.append(t)
+    return torch.cat(resized, dim=0)
+
+
 class DigitGeminiImage:
     MODELS = GEMINI_IMAGE_MODELS
 
@@ -97,6 +115,12 @@ class DigitGeminiImage:
                 "image1": ("IMAGE",),
                 "image2": ("IMAGE",),
                 "image3": ("IMAGE",),
+                "image4": ("IMAGE",),
+                "image5": ("IMAGE",),
+                "image6": ("IMAGE",),
+                "image7": ("IMAGE",),
+                "image8": ("IMAGE",),
+                "image9": ("IMAGE",),
                 "system_instruction": ("STRING", {"default": DEFAULT_IMAGE_SYSTEM_PROMPT, "multiline": True}),
                 "top_p": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "top_k": ("INT", {"default": 32, "min": 1, "max": 64}),
@@ -104,6 +128,7 @@ class DigitGeminiImage:
                 "hate_speech_threshold": (SAFETY_THRESHOLD_OPTIONS, {"default": "BLOCK_NONE"}),
                 "sexually_explicit_threshold": (SAFETY_THRESHOLD_OPTIONS, {"default": "BLOCK_NONE"}),
                 "dangerous_content_threshold": (SAFETY_THRESHOLD_OPTIONS, {"default": "BLOCK_NONE"}),
+                "batch_count": ("INT", {"default": 1, "min": 1, "max": 128, "tooltip": "Number of images to generate. Each is a separate API call fired in parallel; results return as one IMAGE batch."}),
             },
         }
 
@@ -145,6 +170,12 @@ class DigitGeminiImage:
         image1=None,
         image2=None,
         image3=None,
+        image4=None,
+        image5=None,
+        image6=None,
+        image7=None,
+        image8=None,
+        image9=None,
         system_instruction="",
         top_p=1.0,
         top_k=32,
@@ -152,6 +183,7 @@ class DigitGeminiImage:
         hate_speech_threshold="BLOCK_NONE",
         sexually_explicit_threshold="BLOCK_NONE",
         dangerous_content_threshold="BLOCK_NONE",
+        batch_count=1,
         gcp_project_id="",
         gcp_region="global",
     ):
@@ -168,7 +200,7 @@ class DigitGeminiImage:
         # Build content parts — text first, then images (matching Nano Banana 2 order)
         parts = [{"text": prompt}]
 
-        for img_tensor in [image1, image2, image3]:
+        for img_tensor in [image1, image2, image3, image4, image5, image6, image7, image8, image9]:
             if img_tensor is not None:
                 for i in range(img_tensor.shape[0]):
                     png_bytes = _image_tensor_to_png_bytes(img_tensor[i])
@@ -183,14 +215,18 @@ class DigitGeminiImage:
         if aspect_ratio != "auto":
             image_config["aspectRatio"] = aspect_ratio
 
-        # Build request body — matching Nano Banana 2 structure
+        # Build request body — matching Nano Banana 2 structure.
+        # gemini-3-pro-image-preview and gemini-2.5-flash-image 400 on thinkingConfig.
+        generation_config = {
+            "responseModalities": ["TEXT", "IMAGE"],
+            "imageConfig": image_config,
+        }
+        if model not in MODELS_NO_THINKING:
+            generation_config["thinkingConfig"] = {"thinkingLevel": thinking_level}
+
         body = {
             "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {
-                "responseModalities": ["TEXT", "IMAGE"],
-                "imageConfig": image_config,
-                "thinkingConfig": {"thinkingLevel": thinking_level},
-            },
+            "generationConfig": generation_config,
             "safetySettings": self._build_safety_settings(
                 harassment_threshold, hate_speech_threshold,
                 sexually_explicit_threshold, dangerous_content_threshold,
@@ -202,14 +238,63 @@ class DigitGeminiImage:
 
         url = build_vertex_url(project, region, model)
 
-        logger.warning("DIGIT Gemini Image config: model=%s, imageSize=%s, thinkingLevel=%s, aspect_ratio=%s",
-                        model, resolution, thinking_level, aspect_ratio)
+        # Per-item seeds: seed=0 rolls a fresh random seed per image,
+        # a fixed seed gives item i seed+i so the batch is reproducible.
+        if seed == 0:
+            seeds = [random.randint(1, 2147483647) for _ in range(batch_count)]
+        else:
+            seeds = [(seed + i - 1) % 2147483647 + 1 for i in range(batch_count)]
+
+        logger.warning("DIGIT Gemini Image config: model=%s, imageSize=%s, thinkingLevel=%s, aspect_ratio=%s, batch_count=%d, seeds=%s",
+                        model, resolution, thinking_level, aspect_ratio, batch_count, seeds)
         logger.warning("DIGIT Gemini Image URL: %s", url)
 
-        # Generate with retry
-        response_data = self._call_with_retry(url, token, body)
+        # Fire all batch items in parallel, one API call each with its own seed.
+        # Seed is best-effort: Vertex accepts it on gemini-2.5-flash-image, but the
+        # Gemini 3 image models (Nano Banana Pro family) reject unknown generationConfig
+        # fields with HTTP 400. Those models are natively non-deterministic, so batch
+        # variety survives without it — retry seedless instead of failing the item.
+        def _one_call(item_seed):
+            item_body = copy.deepcopy(body)
+            item_body["generationConfig"]["seed"] = item_seed
+            try:
+                return self._call_with_retry(url, token, item_body)
+            except http_requests.exceptions.HTTPError as e:
+                resp = e.response
+                if resp is not None and resp.status_code == 400 and "seed" in resp.text.lower():
+                    logger.warning("Model %s rejected the seed field (HTTP 400); retrying without it. "
+                                   "Batch variety comes from the model's own sampling.", model)
+                    del item_body["generationConfig"]["seed"]
+                    return self._call_with_retry(url, token, item_body)
+                raise
 
-        # Parse response
+        if batch_count == 1:
+            responses = [_one_call(seeds[0])]
+        else:
+            with ThreadPoolExecutor(max_workers=batch_count) as pool:
+                responses = list(pool.map(_one_call, seeds))
+
+        batch_tensors = []
+        batch_texts = []
+        for batch_idx, response_data in enumerate(responses):
+            tensor, texts = self._parse_response(response_data)
+            if tensor is None:
+                logger.warning("Gemini returned no image for batch item %d/%d (seed=%d). Using blank fallback.",
+                               batch_idx + 1, batch_count, seeds[batch_idx])
+                tensor = torch.zeros((1, 1024, 1024, 3))
+            batch_tensors.append(tensor)
+            batch_texts.extend(texts)
+            logger.warning("DIGIT Gemini Image output %d/%d: seed=%d, shape=%s (H=%d, W=%d)",
+                            batch_idx + 1, batch_count, seeds[batch_idx],
+                            tensor.shape, tensor.shape[1], tensor.shape[2])
+
+        output_image = _stack_image_batch(batch_tensors)
+        output_text = "\n".join(batch_texts)
+
+        return (output_image, output_text)
+
+    def _parse_response(self, response_data):
+        """Parse a Vertex response into (best image tensor or None, list of text parts)."""
         image_tensors = []
         text_parts = []
 
@@ -243,16 +328,10 @@ class DigitGeminiImage:
                 for part in parts:
                     if "text" in part:
                         logger.warning("DIGIT Gemini Image text: %s", part["text"][:500])
-            logger.warning("Gemini returned no images. Returning blank fallback.")
-            image_tensors.append(torch.zeros((1, 1024, 1024, 3)))
+            return None, text_parts
 
         # Pick the largest image (HIGH thinking returns a 1K draft + 4K final)
-        output_image = max(image_tensors, key=lambda t: t.shape[1] * t.shape[2])
-        logger.warning("DIGIT Gemini Image output: shape=%s (H=%d, W=%d)",
-                        output_image.shape, output_image.shape[1], output_image.shape[2])
-        output_text = "\n".join(text_parts)
-
-        return (output_image, output_text)
+        return max(image_tensors, key=lambda t: t.shape[1] * t.shape[2]), text_parts
 
     def _call_with_retry(self, url, token, body, max_retries=3, base_delay=5.0):
         """POST to Vertex AI with exponential backoff on rate limits."""

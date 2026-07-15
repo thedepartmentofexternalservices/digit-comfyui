@@ -47,7 +47,8 @@ This is a unified node — it handles text-to-image, image editing, and multi-im
 | resolution | COMBO | 1K | Output resolution: 1K, 2K, or 4K. Nano Banana 2 Lite supports 1K only (the dropdown updates automatically). |
 | seed | INT | 0 | Reproducibility seed. 0 = random each run. Max 2,147,483,647. |
 | temperature | FLOAT | 1.0 | Creativity control. Range 0.0–2.0. Higher = more creative/varied. |
-| image1, image2, image3 | IMAGE | — | Optional input images for editing, style transfer, or composition. Batched images are iterated automatically. |
+| image1 … image9 | IMAGE | — | Optional input images for editing, style transfer, or composition. Batched images are iterated automatically. |
+| batch_count | INT | 1 | Number of images to generate (1–128). All API calls fire in parallel, each with its own seed; results return as one IMAGE batch. |
 | system_instruction | STRING | (built-in) | System prompt that tells the model to always produce images. Customizable. |
 | top_p, top_k | FLOAT/INT | 1.0 / 32 | Nucleus and top-k sampling parameters for fine-tuning output diversity. |
 | harassment_threshold | COMBO | BLOCK_NONE | Safety filter for harassment content. Options: BLOCK_NONE, BLOCK_ONLY_HIGH, BLOCK_MEDIUM_AND_ABOVE, BLOCK_LOW_AND_ABOVE. |
