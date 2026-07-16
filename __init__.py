@@ -2,6 +2,8 @@ from .llm_node import LLMQueryNode
 from .image_saver_node import DigitImageSaver
 from .image_loader_node import DigitImageLoader
 from .gemini_image_node import DigitGeminiImage
+from .gpt_image_node import DigitGptImage
+from .seedream_image_node import DigitSeedreamImage
 from .veo_video_node import DigitVeoVideo
 from .omni_video_node import DigitOmniVideo
 from .video_saver_node import DigitVideoSaver
@@ -45,6 +47,8 @@ NODE_CLASS_MAPPINGS = {
     "DigitImageSaver": DigitImageSaver,
     "DigitImageLoader": DigitImageLoader,
     "DigitGeminiImage": DigitGeminiImage,
+    "DigitGptImage": DigitGptImage,
+    "DigitSeedreamImage": DigitSeedreamImage,
     "DigitVeoVideo": DigitVeoVideo,
     "DigitOmniVideo": DigitOmniVideo,
     "DigitVideoSaver": DigitVideoSaver,
@@ -101,6 +105,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DigitImageSaver": "DIGIT Image Saver",
     "DigitImageLoader": "DIGIT Image Loader",
     "DigitGeminiImage": "DIGIT Gemini Image",
+    "DigitGptImage": "DIGIT GPT Image",
+    "DigitSeedreamImage": "DIGIT Seedream Image",
     "DigitVeoVideo": "DIGIT Veo Video",
     "DigitOmniVideo": "DIGIT Gemini Omni Video",
     "DigitVideoSaver": "DIGIT Video Saver",
