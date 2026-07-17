@@ -796,7 +796,7 @@ class DigitDanceVideo:
                 continue
             local_path = os.path.join(
                 temp_dir,
-                f"dance_muapi_{batch_timestamp}_{batch_uuid}_{job['index']}.mp4",
+                f"dance_{batch_timestamp}_{batch_uuid}_{job['index']}.mp4",
             )
             try:
                 urllib.request.urlretrieve(urls[0], local_path)
@@ -1029,11 +1029,15 @@ class DigitDanceVideo:
                 except Exception:
                     pass
 
+        batch_timestamp = int(time.time())
+        batch_uuid = uuid.uuid4().hex[:8]
         video_paths = []
         for job in jobs:
             if job.get("result") is None:
                 continue
-            paths = self._save_replicate_outputs(job["result"], job["index"])
+            paths = self._save_replicate_outputs(
+                job["result"], job["index"], batch_timestamp, batch_uuid
+            )
             if paths:
                 job["path"] = paths[0]
                 video_paths.append(paths[0])
@@ -1092,7 +1096,7 @@ class DigitDanceVideo:
                     raise
         raise last_error
 
-    def _save_replicate_outputs(self, output, job_index):
+    def _save_replicate_outputs(self, output, job_index, batch_timestamp, batch_uuid):
         """Replicate may return FileOutput, list[FileOutput], dict, or a URL string."""
         temp_dir = folder_paths.get_temp_directory()
         os.makedirs(temp_dir, exist_ok=True)
@@ -1111,14 +1115,14 @@ class DigitDanceVideo:
         else:
             items = [output]
 
-        timestamp = int(time.time())
-        unique_id = uuid.uuid4().hex[:8]
         paths = []
         for i, item in enumerate(items):
             if item is None:
                 continue
+            suffix = f"_{i}" if i else ""
             local_path = os.path.join(
-                temp_dir, f"dance_replicate_{timestamp}_{unique_id}_{job_index}_{i}.mp4"
+                temp_dir,
+                f"dance_{batch_timestamp}_{batch_uuid}_{job_index}{suffix}.mp4",
             )
             try:
                 if hasattr(item, "read"):

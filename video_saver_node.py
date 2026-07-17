@@ -22,6 +22,9 @@ BATCH_VIDEO_NODE_TYPES = frozenset({
 # temp filename prefix -> glob pattern (batch timestamp + uuid inserted).
 BATCH_TEMP_GLOBS = {
     "dance_": "dance_{ts}_{uid}_*.mp4",
+    # Legacy Seedance provider prefixes (pre-unified naming).
+    "dance_muapi_": "dance_muapi_{ts}_{uid}_*.mp4",
+    "dance_replicate_": "dance_replicate_{ts}_{uid}_*.mp4",
     "replicate_seedance_": "replicate_seedance_{ts}_{uid}_*.mp4",
     "veo_": "veo_{ts}_{uid}_*.mp4",
     "omni_": "omni_{ts}_{uid}_*.mp4",
@@ -104,6 +107,10 @@ def _resolve_source_paths(video_paths, video, prompt=None, unique_id=None):
             return paths
 
     if video is None:
+        if video_paths is not None:
+            logger.warning(
+                "[DigitVideoSaver] video_paths was connected but empty; connect Seedance 'video' instead."
+            )
         return []
 
     video_path = _resolve_video_file_path(video)
@@ -187,7 +194,10 @@ class DigitVideoSaver:
 
         source_paths = _resolve_source_paths(video_paths, video, prompt, unique_id)
         if not source_paths:
-            raise ValueError("No video input connected. Connect either 'video' or 'video_paths'.")
+            raise ValueError(
+                "No video input connected. Wire Seedance 'video' to DigitVideoSaver 'video' "
+                "(batch clips expand automatically)."
+            )
 
         saved_paths = []
         for i, src_path in enumerate(source_paths):
