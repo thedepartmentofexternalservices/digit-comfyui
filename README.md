@@ -128,6 +128,67 @@ Every Veo video generation — whether through Google's AI Studio, the web conso
 
 ---
 
+### DIGIT Seedance Video
+
+Generate videos with ByteDance's Seedance 2.0 through your choice of three API providers — one node, one `provider` dropdown. Mode auto-detects from connected inputs, same as the Veo node:
+
+- **Nothing connected** → text-to-video
+- **first_frame connected** → image-to-video
+- **first_frame + last_frame** → first/last-frame interpolation
+- **reference inputs connected** → reference-to-video (up to 9 images, 3 videos, 3 audio; reference them in the prompt as `@Image1`, `@Video1`, `@Audio1`)
+
+**Providers:**
+
+| Provider | Env var | Content filtering | Notes |
+|----------|---------|-------------------|-------|
+| `fal` (default) | `FAL_KEY` | Strict — blocks real people and likenesses | Fastest queue. Supports the `seedance-2.0-fast` model at 480p/720p. |
+| `muapi` | `MUAPIAPP_API_KEY` | Low/reduced — people OK | Cheapest at 480p/720p; the only low-censorship route to 1080p/4K. |
+| `replicate` | `REPLICATE_API_TOKEN` | ByteDance stock filter — blocks sensitive content incl. people | Backup provider. Supports `negative_prompt`. |
+
+**MUAPI auto-routing:** artists pick a resolution and go. With `muapi_route` set to `auto` (the default), the node picks the cheapest low-censorship MUAPI endpoint for the requested (mode, resolution):
+
+| Mode | 480p | 720p | 1080p | 4K |
+|------|------|------|-------|-----|
+| text-to-video | mini-spicy $0.08/s | mini-spicy $0.15/s | VIP $0.675/s | VIP $1.35/s |
+| image-to-video | mini-spicy $0.08/s | mini-spicy $0.15/s | VIP $0.675/s | VIP $1.35/s |
+| first/last frame | VIP fast $0.21/s | VIP fast $0.21/s | VIP $0.675/s | VIP $1.35/s |
+| reference (omni) | mini-omni $0.08/s | mini-omni $0.15/s | VIP $0.675/s | VIP $1.35/s |
+
+mini/mini-spicy tiers only exist at 480p/720p; 1080p/4K upgrade automatically to VIP endpoints (also low censorship). The `muapi_route` dropdown is the escape hatch for forcing VIP priority queue or a specific tier. All routing and pricing data lives in `seedance_pricing.py` — repricing is a one-file edit.
+
+**Live cost strip:** the node shows a two-line estimate at the bottom that updates as you change provider, resolution, duration, or batch count:
+
+```
+Muapi · reduced filter · mini-spicy 720p
+Est. $3.00  (4 clips × 5s)
+```
+
+fal and replicate answer from the static price table; muapi proxies its live estimate-cost endpoint with a static fallback. After a run, the status output records the actual `Cost:` and `Route:` lines.
+
+**Per-second price cheat sheet (text/image-to-video, no video refs):**
+
+| Provider | 480p | 720p | 1080p | 4K |
+|----------|------|------|-------|-----|
+| muapi (auto) | $0.08 | $0.15 | $0.675 | $1.35 |
+| replicate | $0.08 | $0.18 | $0.45 | $1.00 |
+| fal | $0.14 | $0.30 | $0.68 | $1.56 |
+
+Replicate is cheaper than MUAPI at 1080p/4K — but only MUAPI passes people through its filter. Pick by content, not just price.
+
+**Other inputs:** `duration` (4-15s or `auto`; MUAPI requires a number), `aspect_ratio`, `generate_audio`, `bitrate_mode` (fal + muapi), `batch_count` (1-8, submits all before polling), `seed` (fal + replicate; MUAPI has no seed input), `negative_prompt` (replicate only).
+
+**Outputs:** `video` (first clip), `video_paths` (all clips, feed to Video Saver), `status` (provider, route, cost, per-job request IDs).
+
+The old **DIGIT Seedance Video (Replicate)** node is deprecated — it still loads in saved workflows and forwards to the unified node's replicate backend.
+
+---
+
+### DIGIT MU Seedance 2 Character
+
+Build a reusable character sheet from 1-3 reference images via MUAPI's `seedance-2-character` endpoint. Auth via `MUAPIAPP_API_KEY`. Outputs the character sheet IMAGE, its URL, the request ID, and a status string.
+
+---
+
 ### DIGIT LLM Query
 
 Send text (and optionally images) to Gemini LLM models and get text responses. Useful for prompt engineering, image analysis, script writing, or any text generation task within a ComfyUI workflow.

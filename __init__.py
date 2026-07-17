@@ -35,8 +35,7 @@ from .elevenlabs_nodes import (
     DigitElevenLabsSTS,
     DigitElevenLabsDialogue,
 )
-from .seedance_video_node import DigitDanceVideo
-from .replicate_seedance_node import DigitReplicateSeedance
+from .seedance_video_node import DigitDanceVideo, DigitReplicateSeedance
 from .mu_seedance_character_node import DigitMuSeedanceCharacter
 from .shade_nodes import ShadeMount, ShadeSave
 from .drift_gate_node import DigitDriftGate, DigitDriftGateFromPaths
@@ -148,7 +147,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DigitElevenLabsSTS": "DIGIT ElevenLabs Speech to Speech",
     "DigitElevenLabsDialogue": "DIGIT ElevenLabs Dialogue",
     "DigitDanceVideo": "DIGIT Seedance Video",
-    "DigitReplicateSeedance": "DIGIT Seedance Video (Replicate)",
+    "DigitReplicateSeedance": "DIGIT Seedance Video (Replicate) [deprecated]",
     "DigitMuSeedanceCharacter": "DIGIT MU Seedance 2 Character",
     # Shade.inc nodes
     "ShadeMount": "Shade Mount",
