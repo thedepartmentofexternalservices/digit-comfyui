@@ -2,6 +2,7 @@
 Monitors all executed prompts globally and async-reports renders to the ledger.
 """
 
+import os
 import socket
 import urllib.request
 import json
@@ -9,6 +10,8 @@ import threading
 import logging
 
 logger = logging.getLogger("DigitBrokerHook")
+
+DEFAULT_BROKER_URL = "http://10.155.1.39:5000/api/renders/log-execution"
 
 
 def init_broker_hook():
@@ -42,6 +45,10 @@ def init_broker_hook():
 
     # Inject the patch
     PromptServer.send_sync = _patched_send_sync
+    if not os.environ.get("RENDER_HOOK_SECRET"):
+        logger.warning(
+            "[DigitBrokerHook] RENDER_HOOK_SECRET unset — broker will reject cost logging with 401."
+        )
     logger.info("[DigitBrokerHook] Successfully initialized global execution monitor.")
 
 
@@ -67,12 +74,17 @@ def fetch_and_post_history(prompt_id):
             "history": prompt_info
         }
 
-        # Step 3: Send it to the Central Broker's private IP (10.155.1.39)
-        broker_url = "http://10.155.1.39:5000/api/renders/log-execution"
+        # Step 3: POST to broker with the same Bearer secret the broker requires.
+        broker_url = os.environ.get("DIGIT_BROKER_URL", DEFAULT_BROKER_URL)
+        headers = {"Content-Type": "application/json"}
+        secret = os.environ.get("RENDER_HOOK_SECRET", "").strip()
+        if secret:
+            headers["Authorization"] = f"Bearer {secret}"
+
         broker_req = urllib.request.Request(
             broker_url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST"
         )
         with urllib.request.urlopen(broker_req, timeout=5) as response:
