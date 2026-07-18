@@ -423,13 +423,14 @@ class DigitOmniVideo:
         unique_id = uuid.uuid4().hex[:8]
         video_path = os.path.join(temp_dir, f"omni_{timestamp}_{unique_id}.mp4")
 
-        if getattr(output_video, "data", None):
+        video_data = self._field(output_video, "data")
+        if video_data:
             with open(video_path, "wb") as f:
-                f.write(base64.b64decode(output_video.data))
+                f.write(base64.b64decode(video_data))
             logger.info(f"Saved Omni video from inline data: {video_path}")
             return [video_path]
 
-        uri = getattr(output_video, "uri", None)
+        uri = self._field(output_video, "uri")
         if not uri:
             logger.error("Omni video output has no data or uri.")
             return []
@@ -446,16 +447,19 @@ class DigitOmniVideo:
 
         raise RuntimeError(f"Unsupported Omni video URI format: {uri}")
 
+    def _field(self, obj, name, default=None):
+        if isinstance(obj, dict):
+            return obj.get(name, default)
+        return getattr(obj, name, default)
+
     def _extract_video_from_steps(self, interaction):
-        steps = getattr(interaction, "steps", None) or []
+        steps = self._field(interaction, "steps", []) or []
         for step in steps:
-            step_type = getattr(step, "type", None)
-            if step_type != "model_output":
+            if self._field(step, "type") != "model_output":
                 continue
-            content = getattr(step, "content", None) or []
+            content = self._field(step, "content", []) or []
             for item in content:
-                item_type = getattr(item, "type", None)
-                if item_type == "video":
+                if self._field(item, "type") == "video":
                     return item
         return None
 
