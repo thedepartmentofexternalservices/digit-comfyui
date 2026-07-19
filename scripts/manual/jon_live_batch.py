@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Live FAL batch test: queue Jon's workflow through ComfyUI and verify real MP4s on LucidLink."""
+"""Manual live script: queue Jon's workflow through ComfyUI and verify MP4s on LucidLink.
+
+Requires a running ComfyUI instance and live FAL/Seedance generation; not part of pytest.
+"""
 
 import json
 import os
