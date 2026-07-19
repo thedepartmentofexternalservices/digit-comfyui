@@ -19,6 +19,7 @@ from .veo_video_node import _tensor_to_png_bytes
 logger = logging.getLogger(__name__)
 
 MAX_REFERENCE_IMAGES = 7
+MAX_BATCH_COUNT = 128
 
 
 class DigitOmniVideo:
@@ -45,10 +46,10 @@ class DigitOmniVideo:
                 "model": (cls.MODELS, {"default": cls.MODELS[0]}),
                 "aspect_ratio": (["16:9", "9:16"], {"default": "16:9"}),
                 "duration_seconds": ("INT", {"default": 8, "min": 3, "max": 10, "step": 1}),
-                "sample_count": ("INT", {
+                "batch_count": ("INT", {
                     "default": 1,
                     "min": 1,
-                    "max": 8,
+                    "max": MAX_BATCH_COUNT,
                     "step": 1,
                     "tooltip": "Number of video jobs to submit before polling. Jobs run concurrently, subject to Google quota.",
                 }),
@@ -97,7 +98,7 @@ class DigitOmniVideo:
         model,
         aspect_ratio,
         duration_seconds,
-        sample_count,
+        batch_count,
         task,
         seed,
         gcp_project_id="",
@@ -145,11 +146,6 @@ class DigitOmniVideo:
             raise ValueError(
                 "Use either source_video or previous_interaction_id for editing, not both."
             )
-        if has_source_video and (has_first_frame or has_references):
-            raise ValueError(
-                "source_video editing cannot be combined with first_frame or reference images."
-            )
-
         mode = self._detect_mode(
             has_previous=has_previous,
             has_source_video=has_source_video,
@@ -198,7 +194,7 @@ class DigitOmniVideo:
             "input": input_payload,
             "response_format": response_format,
             "store": store,
-            "background": background or sample_count > 1,
+            "background": background or batch_count > 1,
         }
 
         generation_config = {}
@@ -215,7 +211,7 @@ class DigitOmniVideo:
             create_kwargs["generation_config"] = generation_config
 
         interactions = []
-        for index in range(sample_count):
+        for index in range(batch_count):
             job_kwargs = copy.deepcopy(create_kwargs)
             if seed > 0:
                 job_kwargs.setdefault("generation_config", {})["seed"] = seed + index
@@ -224,7 +220,7 @@ class DigitOmniVideo:
             logger.info(
                 "Submitted Omni video job %d/%d: %s",
                 index + 1,
-                sample_count,
+                batch_count,
                 interaction.id,
             )
 
@@ -264,7 +260,7 @@ class DigitOmniVideo:
             f"Duration: {duration_seconds}s",
             f"Aspect ratio: {aspect_ratio}",
             f"Delivery: {delivery}",
-            f"Jobs requested: {sample_count}",
+            f"Jobs requested: {batch_count}",
             f"Jobs completed: {len(completed_interactions)}",
             f"Jobs failed: {len(failed_interactions)}",
             f"Videos generated: {len(video_paths)}",
@@ -301,16 +297,16 @@ class DigitOmniVideo:
         }.get(mode, "text_to_video")
 
     def _build_input(self, client, prompt, first_frame, references, source_video):
+        parts = []
+
         if source_video is not None:
             video_path = self._video_to_path(source_video)
             with open(video_path, "rb") as f:
                 video_b64 = base64.b64encode(f.read()).decode("ascii")
-            return [
-                {"type": "video", "data": video_b64, "mime_type": "video/mp4"},
-                {"type": "text", "text": prompt},
-            ]
+            parts.append(
+                {"type": "video", "data": video_b64, "mime_type": "video/mp4"}
+            )
 
-        parts = []
         for ref_tensor in references:
             parts.append(self._image_part(ref_tensor))
 
