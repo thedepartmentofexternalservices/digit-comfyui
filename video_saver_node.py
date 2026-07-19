@@ -14,7 +14,6 @@ logger = logging.getLogger("DigitVideoSaver")
 # Video generators that emit batch siblings in ComfyUI temp with a shared timestamp.
 BATCH_VIDEO_NODE_TYPES = frozenset({
     "DigitDanceVideo",
-    "DigitReplicateSeedance",
     "DigitVeoVideo",
     "DigitOmniVideo",
 })

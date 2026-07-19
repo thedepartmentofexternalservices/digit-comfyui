@@ -179,8 +179,6 @@ Replicate is cheaper than MUAPI at 1080p/4K — but only MUAPI passes people thr
 
 **Outputs:** `video` (first clip), `video_paths` (all clips, feed to Video Saver), `status` (provider, route, cost, per-job request IDs).
 
-The old **DIGIT Seedance Video (Replicate)** node is deprecated — it still loads in saved workflows and forwards to the unified node's replicate backend.
-
 ---
 
 ### DIGIT MU Seedance 2 Character
