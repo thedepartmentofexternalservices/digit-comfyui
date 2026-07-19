@@ -22,6 +22,24 @@ This means:
 
 ## The Nodes
 
+**52 nodes** registered in v3.1.0 (including 1 deprecated). All appear under the **DIGIT** category unless noted.
+
+| Family | Nodes |
+|--------|-------|
+| **Image generation** | [Gemini Image](#digit-gemini-image) · [GPT Image](#digit-gpt-image) · [Seedream Image](#digit-seedream-image) · [Batch Gemini Image](#digit-batch-gemini-image) |
+| **Video generation** | [Veo Video](#digit-veo-video) · [Gemini Omni Video](#digit-gemini-omni-video) · [Seedance Video](#digit-seedance-video) · [Seedance Video (Replicate)](#digit-seedance-video) [deprecated] · [MU Seedance 2 Character](#digit-mu-seedance-2-character) |
+| **LLM & prompts** | [LLM Query](#digit-llm-query) · [Random Prompt](#digit-random-prompt) · [Prompt Combine](#digit-prompt-combine) · [Text Encode](#digit-text-encode) |
+| **Subtitles / SRT** | [SRT Maker](#digit-srt-maker) · [SRT From Video](#digit-srt-from-video) · [Batch SRT From Video](#digit-batch-srt-from-video) · [SRT Tools](#digit-srt-tools) · [SRT Preview](#digit-srt-preview) |
+| **Pipeline I/O** | [Image Saver](#digit-image-saver) · [Video Saver](#digit-video-saver) · [Image Loader](#digit-image-loader) · [Drag Crop](#digit-drag-crop) · [Crop Info](#digit-crop-info) |
+| **Dataset & captioning** | [Batch Caption](#digit-batch-caption) · [Caption Viewer](#digit-caption-viewer) · [Caption Find & Replace](#digit-caption-find--replace) · [Dataset Prep](#digit-dataset-prep) |
+| **LoRA training** | [Dataset Manager](#digit-lora-training-suite) · [Captioner](#digit-lora-training-suite) · [Caption Preset Manager](#digit-lora-training-suite) · [LoRA Trainer](#digit-lora-training-suite) · [LoRA Loader (training)](#digit-lora-training-suite) · [Naming / Trigger / Sample Prompt Presets](#digit-lora-training-suite) · [LoRA Loader](#digit-lora-loader) · [LoRA Loader (Model Only)](#digit-lora-loader) |
+| **ElevenLabs** (`DIGIT/ElevenLabs`) | [Voice Selector](#digit-elevenlabs-suite) · [Text to Speech](#digit-elevenlabs-suite) · [Speech to Text](#digit-elevenlabs-suite) · [Sound Effects](#digit-elevenlabs-suite) · [Voice Isolation](#digit-elevenlabs-suite) · [Voice Clone](#digit-elevenlabs-suite) · [Speech to Speech](#digit-elevenlabs-suite) · [Dialogue](#digit-elevenlabs-suite) |
+| **Shade** | [Shade Mount](#shade-integration) · [Save to Shade](#shade-integration) |
+| **Drift QC** | [Drift Gate](#digit-drift-qc) · [Drift Gate (Paths)](#digit-drift-qc) · [Drift QC Preview](#digit-drift-qc) |
+| **Utilities** | [Console Doctor](#digit-console-doctor) · [Frame Size](#digit-frame-size) |
+
+---
+
 ### DIGIT Gemini Image
 
 Generate and edit images using Google's Gemini image models directly through Vertex AI.
@@ -601,6 +619,266 @@ Companion node for DIGIT Drag Crop. Takes the CROP_JSON string output and breaks
 
 ---
 
+### DIGIT GPT Image
+
+Generate and edit images with OpenAI GPT Image 2 via fal.ai. Auth via `FAL_KEY`.
+
+Mode auto-detects from inputs:
+- **No images connected** → text-to-image (`openai/gpt-image-2`)
+- **image1–image16 connected** → edit (`openai/gpt-image-2/edit`); optional mask for inpainting
+
+**Models:** `gpt-image-2` (default)
+
+**Key inputs:** `prompt`, `model`, `image_size` (auto, square_hd, portrait_16_9, landscape_16_9, custom, etc.), `quality` (auto/low/medium/high), `output_format` (png/jpeg/webp), `num_images` (1–4 per call), `batch_count` (1–128 parallel jobs), `seed`, `image1`–`image16`, `mask` (inpainting), `custom_width`/`custom_height` (multiples of 16, max edge 3840).
+
+**Outputs:** `image` (IMAGE batch), `status` (job IDs, cost, errors).
+
+**Built-in resilience:** Up to 3 automatic retries; content-policy errors (422) are not retried.
+
+---
+
+### DIGIT Seedream Image
+
+ByteDance Seedream 5.0 image generation via fal.ai. Auth via `FAL_KEY`.
+
+Mode auto-detects:
+- **No images** → text-to-image
+- **image1–image10 connected** → edit
+
+**Models:**
+
+| Model | Endpoint | Notes |
+|-------|----------|-------|
+| `seedream-5.0-pro` | Pro text-to-image / edit | `auto_1K`/`auto_2K` sizes; `output_format` (jpeg/png) |
+| `seedream-5.0-lite` | Lite text-to-image / edit | `auto_2K`–`auto_4K`; `max_images` up to 4 per call |
+
+**Key inputs:** `prompt`, `model`, `image_size`, `batch_count` (1–128), `seed`, `image1`–`image10`, `custom_width`/`custom_height`, `max_images` (lite only).
+
+**Outputs:** `image`, `status`.
+
+---
+
+### DIGIT Batch Gemini Image
+
+Batch Gemini image generation across a folder of source images with optional LLM-driven prompt variation. Uses Vertex AI (same auth as Gemini Image).
+
+**How it works:**
+
+1. Scans a source folder for images (optionally filtered by extension)
+2. For each image, optionally varies the prompt via Gemini LLM before generation
+3. Runs generation with the same model/resolution/safety controls as DIGIT Gemini Image
+4. Saves outputs to a destination folder with progress bar
+
+**Key inputs:** `source_folder`, `output_folder`, `prompt`, `model`, `aspect_ratio`, `resolution`, `variation_mode` (none/fixed/llm), `variation_prompt`, `batch_per_image`, `overwrite`, `file_types`, safety thresholds, `gcp_project_id`, `gcp_region`.
+
+**Outputs:** `log`, `generated_count`, `output_folder`.
+
+---
+
+### DIGIT Gemini Omni Video
+
+Conversational video generation via Vertex AI's **Interactions API** (`gemini-omni-flash-preview`). Supports stateful follow-up edits through `previous_interaction_id`.
+
+**Tasks** (or `auto` to detect from inputs):
+
+| Task | Trigger |
+|------|---------|
+| `text_to_video` | Prompt only |
+| `image_to_video` | `first_frame` connected |
+| `reference_to_video` | `reference1`–`reference7` connected |
+| `edit` | `source_video` connected |
+
+**Key inputs:** `prompt`, `model`, `aspect_ratio` (16:9/9:16), `duration_seconds` (3–10), `sample_count` (1–8 concurrent jobs), `task`, `seed`, `first_frame`, `source_video`, `reference1`–`reference7`, `previous_interaction_id`, `delivery` (inline/uri), `output_gcs_uri` (required for uri delivery), `store`, `background`, `gcp_project_id`, `gcp_region`.
+
+**Outputs:** `video` (list), `video_paths`, `status`, `interaction_id` (pass to a follow-up run for conversational edits).
+
+---
+
+### DIGIT Random Prompt
+
+Builds randomized cinematic image prompts from curated category pools: setting, location, time of day, weather, mood, camera body, lens, film stock, lighting, composition, color palette, and subject modifiers.
+
+**Inputs:** `seed` (0 = random each run), toggles to enable/disable individual categories, `custom_prefix`/`custom_suffix`.
+
+**Outputs:** `prompt` (STRING), `seed_used` (INT).
+
+Use with [Prompt Combine](#digit-prompt-combine) and [Text Encode](#digit-text-encode) for full prompt-to-conditioning pipelines.
+
+---
+
+### DIGIT Prompt Combine
+
+Joins multiple text inputs into a single prompt string. Empty inputs are skipped.
+
+**Inputs:** `separator` (default `", "`), optional `trigger` (from LoRA Loader), `prompt_1`–`prompt_3` (connectable), `prefix`, `suffix` (typed on node).
+
+**Outputs:** `prompt` (STRING). Shows combined text in the node UI.
+
+---
+
+### DIGIT Text Encode
+
+CLIP text encode with `text` as a connectable input (no widget conversion needed). Drop-in replacement for the stock Text Encode when wiring prompts from other DIGIT nodes.
+
+**Inputs:** `clip` (CLIP model), `text` (STRING, connectable).
+
+**Outputs:** `conditioning`.
+
+---
+
+### DIGIT Batch Caption
+
+Caption a folder of images using Gemini via Vertex AI. Writes a `.txt` sidecar next to each image.
+
+**Caption styles:** `descriptive_formal`, `descriptive_casual`, `training_detailed`, `training_concise`, `booru_tags`, `prompt_style`, `custom`.
+
+**Caption lengths:** `short` (<75 words), `medium` (75–200), `long` (200–500), `any`.
+
+**Key inputs:** `image_folder`, `caption_style`, `caption_length`, `custom_system_prompt`, `custom_prompt`, `model`, `max_tokens`, `temperature`, `overwrite`, `delay_seconds`, `file_types`, `gcp_project_id`, `gcp_region`.
+
+**Outputs:** `log`, `captioned_count`, `folder_path` (connect to Caption Viewer).
+
+---
+
+### DIGIT Caption Viewer
+
+Step through image + caption pairs in a dataset folder for QA review.
+
+**Inputs:** `dataset_folder`, `index` (0-based, wraps), optional `folder_path` (from Batch Caption output).
+
+**Outputs:** `image`, `caption`, `filename`, `status`, `total`. Shows preview on the node.
+
+---
+
+### DIGIT Caption Find & Replace
+
+Bulk find/replace across all `.txt` caption files in a folder. Supports prefix/suffix append after replacement.
+
+**Inputs:** `caption_folder`, `find_text`, `replace_text`, `case_sensitive`, `dry_run` (preview without writing), `prefix_text`, `suffix_text`.
+
+**Outputs:** `log`, `modified_count`.
+
+---
+
+### DIGIT Dataset Prep
+
+Resize and prepare a folder of images for LoRA training. Copies matching `.txt` captions to the output folder.
+
+**Resize modes:** `fit` (maintain aspect, no crop), `fill_crop` (center crop), `stretch`, `pad` (solid color).
+
+**Key inputs:** `source_folder`, `output_folder`, `resolution`, `resize_mode`, `output_format` (png/jpg), `quality`, `overwrite`, `copy_captions`, `pad_color_r/g/b`.
+
+**Outputs:** `log`, `processed_count`.
+
+---
+
+### DIGIT LoRA training suite
+
+Full LoRA training pipeline for Flux and Qwen models. Requires training dependencies: `pip install -r requirements-training.txt`.
+
+Set `DIGIT_DATASET_BASE` to override the default dataset root (`~/datasets`).
+
+| Node | Purpose |
+|------|---------|
+| **DIGIT Dataset Manager** | `scan`, `create`, `validate`, or `stats` on a training dataset. Create copies images from a source path, filters by min resolution. |
+| **DIGIT Captioner** | Auto-caption dataset images via Gemini. Actions: `caption_all`, `caption_uncaptioned`, `caption_single`, `recaption_all`, `preview`. Supports saved caption presets. |
+| **DIGIT Caption Preset Manager** | Save/load/list/delete caption presets (system prompt, template, model, temperature, example captions). |
+| **DIGIT LoRA Trainer** | Train LoRA adapters. Actions: `train`, `stop`, `status`, `load_preset`, `save_preset`, `list_presets`, `list_runs`. Models: `flux1-dev`, `flux1-schnell`, `flux2`, `flux2-klein`, `qwen`. Writes `digit_metadata.json` with trigger info. |
+| **DIGIT LoRA Loader** | Load a trained DIGIT LoRA from the ComfyUI `loras` folder (or path override). Returns `lora_path`, `trigger_word`, `trigger_class`, `trigger_phrase`, `metadata`. |
+| **DIGIT Naming Preset** | Template presets for output directory and checkpoint naming (`{name}_{model}_r{rank}_{date}`, etc.). |
+| **DIGIT Trigger Preset** | Save/load trigger word + class noun combinations for training runs. |
+| **DIGIT Sample Prompt Preset** | Save/load sample prompt lists used during training for preview image generation. |
+
+YAML configs in `configs/` (`default.yaml`, `flux1_style.yaml`, `flux1_subject.yaml`) provide starting points. See `workflows/lora_training_pipeline.json` for a complete example workflow.
+
+---
+
+### DIGIT LoRA Loader
+
+Loads LoRAs into ComfyUI pipelines with automatic trigger-word extraction from safetensors metadata. Supports AI Toolkit, Kohya/sd-scripts, SimpleTuner, and modelspec formats — no external metadata files required.
+
+**Variants:**
+- **DIGIT LoRA Loader** — applies LoRA to `model` + `clip`
+- **DIGIT LoRA Loader (Model Only)** — applies to `model` only
+
+**Inputs:** `model`, `clip` (full loader only), `lora_name` (dropdown from `loras` folder), `strength_model`, `strength_clip`.
+
+**Outputs:** `model`, `clip` (full loader), `trigger_word`, `metadata_json`. Connect `trigger_word` to Prompt Combine.
+
+---
+
+### DIGIT ElevenLabs suite
+
+Direct ElevenLabs API access — no ComfyUI org proxy. Auth via `DIGIT_ELEVENLABS_API_KEY` or `ELEVENLABS_API_KEY`.
+
+| Node | What it does |
+|------|-------------|
+| **Voice Selector** | Pick from 22 predefined voices; outputs `voice_id` for downstream nodes. |
+| **Text to Speech** | Convert text to audio. Models: `eleven_multilingual_v2`, `eleven_v3`. Controls: stability, similarity_boost, speed, style, speaker boost, language code, output format. |
+| **Speech to Text** | Transcribe audio with `scribe_v2`. Optional diarization, word timestamps, audio event tags. |
+| **Sound Effects** | Generate SFX from a text description. Duration 0.5–30s, optional seamless loop. |
+| **Voice Isolation** | Strip background noise; returns isolated voice audio. |
+| **Voice Clone** | Clone a voice from a short audio sample. Returns `voice_id` for TTS/STS. |
+| **Speech to Speech** | Convert spoken audio to a different voice while preserving delivery. |
+| **Dialogue** | Multi-speaker dialogue generation from a script with per-line voice assignment. |
+
+All audio nodes output ComfyUI `AUDIO` type (PCM 44.1kHz by default).
+
+---
+
+### Shade integration
+
+[Shade.inc](https://shade.inc) filespace integration for LucidLink-style project drives on render VMs.
+
+**Environment variables:** `SHADE_API_KEY`, `SHADE_WORKSPACE_ID`, `SHADE_DB_DIR`, `SHADE_MOUNT_BASE`, `SHADEFS_BIN`.
+
+| Node | What it does |
+|------|-------------|
+| **Shade Mount** | Lists drives from the Shade API, configures and mounts the selected drive via `shadefs`. Outputs `mount_path` (e.g. `/Volumes/shade/my_project`). |
+| **Save to Shade** | Writes images or video clips to `<mount_path>/output/` with auto-incrementing filenames. |
+
+---
+
+### DIGIT Drift QC
+
+VFX/automotive QC gates that compare a reference plate to a generated image and reject on drift.
+
+**DIGIT Drift Gate** — compares `reference` vs `generated` IMAGE tensors. Resize-aligns with configurable `resize_mode` and `fit_method` (stretch/letterbox/crop_center). Scores drift confidence using pixel SSIM + edge-sensitive SSIM (catches badge, logo, and typography drift). Rejects when confidence falls below `threshold`.
+
+**Outputs:** `passed`, `confidence`, `drift_report`, `qc_json`, `qc_filepath`, `gated_image` (generated if passed, blank if failed), `qc_sheet`, `diff_heatmap`, `edge_diff`, `reference_aligned`, `generated_aligned`.
+
+**DIGIT Drift Gate (Paths)** — same comparison but loads images from file paths instead of IMAGE tensors. Useful when reference plates live on disk.
+
+**DIGIT Drift QC Preview** — interactive review node wired after Drift Gate. Cycle layers (reference, generated, pixel diff, edge diff, annotated) or A/B blink. Draws red hotspot circles on failed regions parsed from `qc_json`.
+
+---
+
+### DIGIT Console Doctor
+
+Reads ComfyUI's in-memory log buffer, filters by severity, and sends errors to Gemini for diagnosis.
+
+**Log levels:** `errors_only`, `warnings_and_errors`, `all`.
+
+**Inputs:** `log_level`, `max_entries`, `node_filter` (optional node name substring), `extra_context`, `model`, `gcp_project_id`, `gcp_region`.
+
+**Outputs:** `diagnosis` (plain-language explanation + fix suggestions), `error_count`, `log_excerpt`.
+
+Identifies Python tracebacks, missing modules (suggests `pip install`), CUDA/VRAM errors, and node execution failures.
+
+---
+
+### DIGIT Frame Size
+
+Resolution preset picker organized by size tier (Large / Medium / Small) and aspect ratio.
+
+**Presets include:** square 1:1, photo 4:5/5:4, standard 4:3/3:4, classic 3:2/2:3, HD 16:9/9:16 (up to 4K), ultrawide 21:9, anamorphic 2.39:1, IMAX 1.43:1, SD 480p.
+
+**Inputs:** `preset` (dropdown), optional `width_override`/`height_override` (non-zero overrides preset).
+
+**Outputs:** `width`, `height`, `megapixels` (STRING).
+
+---
+
 ## Installation
 
 ### From ComfyUI Manager (Recommended)
@@ -723,10 +1001,16 @@ Project folders must follow the `#####_name` pattern (5-digit prefix) to appear 
 | `google-genai` | Official Google GenAI SDK for Gemini and Veo via Vertex AI |
 | `google-auth` | GCP authentication and credential management |
 | `google-cloud-storage` | GCS bucket access for lossless Veo output |
+| `fal-client` | fal.ai API client for GPT Image, Seedream Image, and Seedance Video |
+| `replicate` | Replicate API client for Seedance Video (replicate provider) |
+| `soundfile` | Audio I/O for ElevenLabs nodes |
 | `piexif` | EXIF metadata embedding in JPEG files |
 | `opencv-python` | EXR file reading and writing |
-| `requests` | HTTP requests for LLM Query node |
+| `pyyaml` | YAML config parsing for LoRA training |
+| `requests` | HTTP requests for LLM Query, ElevenLabs, and MUAPI nodes |
 | `ffmpeg` (system) | Audio extraction for SRT From Video nodes. Must be on PATH. |
+
+**Training dependencies** (optional, for LoRA training nodes): install with `pip install -r requirements-training.txt`. Includes `torch`, `diffusers`, `transformers`, `peft`, `accelerate`, `bitsandbytes`, `tensorboard`, `wandb`, `safetensors`.
 
 ---
 
