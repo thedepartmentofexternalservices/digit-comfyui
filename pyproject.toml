@@ -13,6 +13,7 @@ dependencies = [
     "opencv-python",
     "pyyaml",
     "fal-client",
+    "replicate",
     "soundfile",
 ]
 
