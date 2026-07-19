@@ -11,10 +11,14 @@ import logging
 
 logger = logging.getLogger("DigitBrokerHook")
 
-DEFAULT_BROKER_URL = "http://10.155.1.39:5000/api/renders/log-execution"
-
 
 def init_broker_hook():
+    if not os.environ.get("DIGIT_BROKER_URL", "").strip():
+        logger.info(
+            "[DigitBrokerHook] DIGIT_BROKER_URL unset — render reporting disabled, skipping hook initialization."
+        )
+        return
+
     try:
         from server import PromptServer
     except ImportError:
@@ -75,7 +79,12 @@ def fetch_and_post_history(prompt_id):
         }
 
         # Step 3: POST to broker with the same Bearer secret the broker requires.
-        broker_url = os.environ.get("DIGIT_BROKER_URL", DEFAULT_BROKER_URL)
+        broker_url = os.environ.get("DIGIT_BROKER_URL", "").strip()
+        if not broker_url:
+            logger.warning(
+                f"[DigitBrokerHook] DIGIT_BROKER_URL unset — dropping execution report for prompt {prompt_id}."
+            )
+            return
         headers = {"Content-Type": "application/json"}
         secret = os.environ.get("RENDER_HOOK_SECRET", "").strip()
         if secret:
