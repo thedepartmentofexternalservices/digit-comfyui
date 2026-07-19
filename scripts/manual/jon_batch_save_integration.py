@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Integration test: Jon's purple box workflow saves all batch videos to LucidLink."""
+"""Manual integration script: Jon's purple box workflow saves batch videos to LucidLink.
+
+Run on a ComfyUI host with LucidLink mounted; not part of the automated pytest suite.
+"""
 
 import importlib.util
 import json
