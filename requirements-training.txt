@@ -7,4 +7,3 @@ bitsandbytes>=0.43.0
 tensorboard
 wandb
 safetensors
-pyyaml
