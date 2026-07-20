@@ -245,16 +245,21 @@ def extract_prompt_dict(history: dict) -> dict:
 
 
 def price_execution(history: dict) -> list[dict]:
-    """Score every executed billable node in a ComfyUI history entry.
+    """Score every billable node in a ComfyUI history entry.
+
+    Walk the prompt graph, not ``history.outputs``. Terminal Save* nodes are
+    what land in ``outputs``; billable API nodes (Seedance, Veo, ElevenLabs)
+    are usually intermediates and would be skipped if we only keyed off
+    outputs (DIGIT-125).
 
     Returns a list of dicts with node_id + cost fields for the broker.
     """
     prompt_dict = extract_prompt_dict(history)
-    outputs = history.get("outputs") or {}
     priced: list[dict] = []
 
-    for node_id in outputs:
-        node_def = prompt_dict.get(node_id) or {}
+    for node_id, node_def in prompt_dict.items():
+        if not isinstance(node_def, dict):
+            continue
         class_type = node_def.get("class_type")
         row = price_node(class_type, node_def.get("inputs") or {})
         if not row:
