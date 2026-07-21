@@ -1144,6 +1144,82 @@ class DigitDanceVideo:
         return paths
 
 
+class DigitReplicateSeedance(DigitDanceVideo):
+    """Deprecated alias. Use DIGIT Seedance Video with provider=replicate.
+
+    Keeps the old node's widget surface so saved workflows load untouched,
+    then forwards to the unified Replicate backend.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        ref_image_sockets = {
+            f"reference_image{i}": ("IMAGE",) for i in range(1, MAX_REFERENCE_IMAGES + 1)
+        }
+        ref_video_sockets = {
+            f"reference_video{i}": ("VIDEO",) for i in range(1, MAX_REFERENCE_VIDEOS + 1)
+        }
+        ref_audio_sockets = {
+            f"reference_audio{i}": ("AUDIO",) for i in range(1, MAX_REFERENCE_AUDIOS + 1)
+        }
+        return {
+            "required": {
+                "prompt": ("STRING", {
+                    "default": "",
+                    "multiline": True,
+                    "placeholder": "Describe the video. Use double quotes for spoken dialogue.",
+                }),
+                "resolution": (RESOLUTIONS, {
+                    "default": "720p",
+                    "tooltip": "4k output is 10-bit H.265/HEVC.",
+                }),
+                "aspect_ratio": (["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"],
+                                 {"default": "16:9"}),
+                "duration_seconds": ("INT", {
+                    "default": 5, "min": -1, "max": 15,
+                    "tooltip": "Video length in seconds (4-15). Use -1 for model-selected duration.",
+                }),
+                "generate_audio": ("BOOLEAN", {"default": True}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": MAX_SEED}),
+            },
+            "optional": {
+                "first_frame": ("IMAGE", {"tooltip": "Image-to-video mode. Mutually exclusive with reference inputs."}),
+                "last_frame": ("IMAGE", {"tooltip": "Optional end frame for first-to-last interpolation."}),
+                "negative_prompt": ("STRING", {"default": "", "multiline": True}),
+                **ref_image_sockets,
+                **ref_video_sockets,
+                **ref_audio_sockets,
+            },
+        }
+
+    def generate(self, prompt, resolution, aspect_ratio, duration_seconds,
+                 generate_audio, seed,
+                 first_frame=None, last_frame=None, negative_prompt="",
+                 **kwargs):
+        logger.warning(
+            "[DigitReplicateSeedance] Deprecated node. "
+            "Use DIGIT Seedance Video with provider=replicate."
+        )
+        duration = "auto" if int(duration_seconds) < 0 else str(int(duration_seconds))
+        aspect = "auto" if aspect_ratio == "adaptive" else aspect_ratio
+        return super().generate(
+            prompt=prompt,
+            provider="replicate",
+            model="seedance-2.0",
+            resolution=resolution,
+            aspect_ratio=aspect,
+            duration=duration,
+            generate_audio=generate_audio,
+            bitrate_mode="standard",
+            batch_count=1,
+            seed=seed,
+            first_frame=first_frame,
+            last_frame=last_frame,
+            negative_prompt=negative_prompt,
+            **kwargs,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Cost-estimate route for the node's live summary strip
 # (web/digit_seedance_cost.js). Registered only when running inside ComfyUI.

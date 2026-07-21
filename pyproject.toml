@@ -1,6 +1,6 @@
 [project]
 name = "comfyui-digit"
-version = "4.0.0"
+version = "4.0.1"
 description = "DIGIT — Deep Infrastructure for Generative Image Training. ComfyUI nodes for Gemini generation, Veo + Seedance 2.0 video, LoRA training, dataset management, and auto-captioning."
 license = { text = "MIT" }
 requires-python = ">=3.9"
