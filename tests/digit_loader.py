@@ -20,9 +20,21 @@ def _ensure_folder_paths_stub() -> None:
     sys.modules["folder_paths"] = folder_paths
 
 
+def _ensure_comfy_stub() -> None:
+    if "comfy" in sys.modules:
+        return
+    comfy = types.ModuleType("comfy")
+    utils = types.ModuleType("comfy.utils")
+    utils.ProgressBar = lambda *args, **kwargs: None
+    comfy.utils = utils
+    sys.modules["comfy"] = comfy
+    sys.modules["comfy.utils"] = utils
+
+
 def load_digit_module(module_name: str):
     """Import a repo-root module as ``comfyui_digit.<module_name>``."""
     _ensure_folder_paths_stub()
+    _ensure_comfy_stub()
 
     pkg = sys.modules.get(PKG_NAME)
     if pkg is None:
