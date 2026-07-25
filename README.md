@@ -22,7 +22,7 @@ This means:
 
 ## The Nodes
 
-**52 nodes** registered in v3.1.0 (including 1 deprecated). All appear under the **DIGIT** category unless noted.
+**52 nodes** registered in v4.0.1 (including 1 deprecated alias). All appear under the **DIGIT** category unless noted.
 
 | Family | Nodes |
 |--------|-------|
@@ -989,6 +989,21 @@ export DIGIT_PROJEKTS_ROOTS="/mnt/storage/PROJEKTS:/Volumes/shared/PROJEKTS"
 If not set, the node auto-detects common mount points or falls back to `~/PROJEKTS`.
 
 Project folders must follow the `#####_name` pattern (5-digit prefix) to appear in the dropdown menus.
+
+---
+
+## Node deprecation policy
+
+Major version bumps may rename or merge node classes. To keep artist workflows loading:
+
+- **Aliases stay registered for at least one major cycle.** Example: `DigitReplicateSeedance` (removed in v4.0.0) was restored in v4.0.1 and will stay until v5.0.0.
+- **Saved workflow JSON keeps working.** Alias nodes keep their original widget layout and forward to the replacement node at runtime.
+- **Release notes call out every rename.** Deprecated aliases show `[deprecated]` in the ComfyUI node picker.
+- **Migration map** lives in [`legacy_aliases.py`](legacy_aliases.py).
+
+| Old class id | Replacement | Removed in | Alias removed in |
+|--------------|-------------|------------|------------------|
+| `DigitReplicateSeedance` | `DigitDanceVideo` (set provider=replicate) | v4.0.0 | v5.0.0 (planned) |
 
 ---
 
