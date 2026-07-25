@@ -10,6 +10,7 @@ dependencies = [
     "google-genai",
     "google-cloud-storage",
     "piexif",
+    "Pillow",
     "opencv-python",
     "pyyaml",
     "fal-client",
