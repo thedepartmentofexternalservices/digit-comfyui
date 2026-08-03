@@ -992,6 +992,23 @@ Project folders must follow the `#####_name` pattern (5-digit prefix) to appear 
 
 ---
 
+## Node authoring standard (image & video)
+
+Every new or updated **image** or **video** generation node should support multi-image input and batch output where the underlying API allows it. This keeps artist workflows consistent across the fleet.
+
+| Requirement | Convention | Gold-standard examples |
+|-------------|------------|------------------------|
+| Multiple reference / input images | Accept as many IMAGE inputs as the API supports (document the cap in the node README) | `DigitGeminiImage` (9 refs), `DigitGptImage` (16), `DigitSeedance` (9 ref + video/audio) |
+| Batch output | Expose **`batch_count`** (INT, default 1) — not `sample_count` or other one-off names | Gemini, GPT, Seedream, Seedance |
+| Batch semantics | When the API also has a per-call `num_images` (or equivalent), multiply: `total = num_images × batch_count` | GPT Image, Seedream |
+| Parallel execution | Fire independent API calls in parallel (thread pool or async batch) when `batch_count > 1` | Gemini Image (`ThreadPoolExecutor`) |
+
+**Known gaps** (tracked in Linear DIGIT-82): `DigitOmniVideo` and `DigitVeoVideo` still use `sample_count` with lower caps; these will be renamed to `batch_count` and aligned with the table above.
+
+Nodes that are intentionally single-file by design (loaders, savers, crop utilities) are exempt.
+
+---
+
 ## Node deprecation policy
 
 Major version bumps may rename or merge node classes. To keep artist workflows loading:
