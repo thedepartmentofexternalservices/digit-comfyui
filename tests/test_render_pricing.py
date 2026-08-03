@@ -96,7 +96,7 @@ def test_price_execution_scores_seedance_when_only_save_in_outputs():
             {
                 "10": {
                     "class_type": "DigitGeminiImage",
-                    "inputs": {"model": "gemini-3-pro-image-preview"},
+                    "inputs": {"model": "gemini-3-pro-image"},
                 },
                 "11": {"class_type": "SaveImage", "inputs": {}},
                 "20": {

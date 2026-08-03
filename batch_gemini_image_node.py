@@ -19,6 +19,8 @@ from .gemini_image_models import (
     DEFAULT_GEMINI_IMAGE_MODEL,
     MODELS_1K_ONLY,
     RESOLUTIONS,
+    resolve_gemini_image_model,
+    apply_image_thinking_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -342,6 +344,7 @@ class DigitBatchGeminiImage:
 
         # Validate
         image_folder = image_folder.strip()
+        image_model = resolve_gemini_image_model(image_model)
         if not os.path.isdir(image_folder):
             raise ValueError(f"Image folder not found: {image_folder}")
         if not prompt.strip():
@@ -436,13 +439,15 @@ class DigitBatchGeminiImage:
                     if aspect_ratio != "auto":
                         image_config["aspectRatio"] = aspect_ratio
 
+                    generation_config = {
+                        "responseModalities": ["TEXT", "IMAGE"],
+                        "imageConfig": image_config,
+                    }
+                    apply_image_thinking_config(generation_config, image_model, thinking_level)
+
                     body = {
                         "contents": [{"role": "user", "parts": parts}],
-                        "generationConfig": {
-                            "responseModalities": ["TEXT", "IMAGE"],
-                            "imageConfig": image_config,
-                            "thinkingConfig": {"thinkingLevel": thinking_level},
-                        },
+                        "generationConfig": generation_config,
                         "safetySettings": safety_settings,
                     }
 

@@ -52,7 +52,7 @@ This is a unified node — it handles text-to-image, image editing, and multi-im
 |-------|--------------|------------|
 | Gemini 3.1 Flash Image | `gemini-3.1-flash-image` | Nano Banana 2 — balanced quality and speed. Default choice. |
 | Gemini 3.1 Flash-Lite Image | `gemini-3.1-flash-lite-image` | Nano Banana 2 Lite — fastest and most cost-efficient; 1K resolution only. |
-| Gemini 3 Pro Image | `gemini-3-pro-image-preview` | Nano Banana Pro — higher quality, slower. |
+| Gemini 3 Pro Image | `gemini-3-pro-image` | Nano Banana Pro — higher quality, slower. |
 | Gemini 2.5 Flash Image | `gemini-2.5-flash-image` | Previous generation. Still solid. |
 
 **Inputs:**

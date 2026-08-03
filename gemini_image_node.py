@@ -18,6 +18,8 @@ from .gemini_image_models import (
     MODELS_1K_ONLY,
     MODELS_NO_THINKING,
     RESOLUTIONS,
+    resolve_gemini_image_model,
+    apply_image_thinking_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -189,6 +191,7 @@ class DigitGeminiImage:
     ):
         if not prompt:
             raise ValueError("Prompt is required")
+        model = resolve_gemini_image_model(model)
         if model in MODELS_1K_ONLY and resolution != "1K":
             raise ValueError(
                 f"Model {model} (Nano Banana 2 Lite) only supports 1K resolution, got {resolution}."
@@ -216,13 +219,12 @@ class DigitGeminiImage:
             image_config["aspectRatio"] = aspect_ratio
 
         # Build request body — matching Nano Banana 2 structure.
-        # gemini-3-pro-image-preview and gemini-2.5-flash-image 400 on thinkingConfig.
+        # gemini-3-pro-image and gemini-2.5-flash-image reject thinkingConfig (HTTP 400).
         generation_config = {
             "responseModalities": ["TEXT", "IMAGE"],
             "imageConfig": image_config,
         }
-        if model not in MODELS_NO_THINKING:
-            generation_config["thinkingConfig"] = {"thinkingLevel": thinking_level}
+        apply_image_thinking_config(generation_config, model, thinking_level)
 
         body = {
             "contents": [{"role": "user", "parts": parts}],
