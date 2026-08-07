@@ -148,20 +148,28 @@ Every Veo video generation — whether through Google's AI Studio, the web conso
 
 ### DIGIT Seedance Video
 
-Generate videos with ByteDance's Seedance 2.0 through your choice of three API providers — one node, one `provider` dropdown. Mode auto-detects from connected inputs, same as the Veo node:
+Generate videos with ByteDance's Seedance 2.0 / 2.5 through your choice of three API providers — one node, one `provider` dropdown. Default model stays `seedance-2.0`. Mode auto-detects from connected inputs, same as the Veo node:
 
 - **Nothing connected** → text-to-video
 - **first_frame connected** → image-to-video
 - **first_frame + last_frame** → first/last-frame interpolation
-- **reference inputs connected** → reference-to-video (up to 9 images, 3 videos, 3 audio; reference them in the prompt as `@Image1`, `@Video1`, `@Audio1`)
+- **reference inputs connected** → reference-to-video (reference them in the prompt as `@Image1`, `@Video1`, `@Audio1`)
+
+**Models (fal `model` dropdown):**
+
+| Model | Provider support | Duration | Resolution | Reference caps |
+|-------|------------------|----------|------------|----------------|
+| `seedance-2.0` (default) | fal, muapi, replicate | 4–15s or `auto` | 480p–4k | 9 images / 3 videos / 3 audio (12 total) |
+| `seedance-2.0-fast` | fal only | 4–15s or `auto` | 480p / 720p | same as 2.0 |
+| `seedance-2.5` | fal only | 4–30s or `auto` | 480p / 720p | 30 images / 10 videos / 10 audio (50 total) |
 
 **Providers:**
 
 | Provider | Env var | Content filtering | Notes |
 |----------|---------|-------------------|-------|
-| `fal` (default) | `FAL_KEY` | Strict — blocks real people and likenesses | Fastest queue. Supports the `seedance-2.0-fast` model at 480p/720p. |
-| `muapi` | `MUAPIAPP_API_KEY` | Low/reduced — people OK | Cheapest at 480p/720p; the only low-censorship route to 1080p/4K. |
-| `replicate` | `REPLICATE_API_TOKEN` | ByteDance stock filter — blocks sensitive content incl. people | Backup provider. Supports `negative_prompt`. |
+| `fal` (default) | `FAL_KEY` | Strict — blocks real people and likenesses | Fastest queue. Supports `seedance-2.0`, `seedance-2.0-fast`, and `seedance-2.5`. |
+| `muapi` | `MUAPIAPP_API_KEY` | Low/reduced — people OK | Cheapest at 480p/720p; the only low-censorship route to 1080p/4K. Seedance 2.0 only. |
+| `replicate` | `REPLICATE_API_TOKEN` | ByteDance stock filter — blocks sensitive content incl. people | Backup provider. Supports `negative_prompt`. Seedance 2.0 only. |
 
 **MUAPI auto-routing:** artists pick a resolution and go. With `muapi_route` set to `auto` (the default), the node picks the cheapest low-censorship MUAPI endpoint for the requested (mode, resolution):
 
@@ -185,15 +193,16 @@ fal and replicate answer from the static price table; muapi proxies its live est
 
 **Per-second price cheat sheet (text/image-to-video, no video refs):**
 
-| Provider | 480p | 720p | 1080p | 4K |
-|----------|------|------|-------|-----|
+| Provider / model | 480p | 720p | 1080p | 4K |
+|------------------|------|------|-------|-----|
 | muapi (auto) | $0.08 | $0.15 | $0.675 | $1.35 |
 | replicate | $0.08 | $0.18 | $0.45 | $1.00 |
-| fal | $0.14 | $0.30 | $0.68 | $1.56 |
+| fal `seedance-2.0` | $0.14 | $0.30 | $0.68 | $1.56 |
+| fal `seedance-2.5` | $0.22 | $0.47 | — | — |
 
-Replicate is cheaper than MUAPI at 1080p/4K — but only MUAPI passes people through its filter. Pick by content, not just price.
+Replicate is cheaper than MUAPI at 1080p/4K — but only MUAPI passes people through its filter. Pick by content, not just price. Seedance 2.5 is fal's token-priced 16:9 approximation and tops out at 720p.
 
-**Other inputs:** `duration` (4-15s or `auto`; MUAPI requires a number), `aspect_ratio`, `generate_audio`, `bitrate_mode` (fal + muapi), `batch_count` (1-8, submits all before polling), `seed` (fal + replicate; MUAPI has no seed input), `negative_prompt` (replicate only).
+**Other inputs:** `duration` (2.0: 4–15s or `auto`; 2.5: 4–30s or `auto`; MUAPI requires a number 4–15), `aspect_ratio`, `generate_audio`, `bitrate_mode` (seedance-2.0 on fal + muapi; ignored for 2.5), `batch_count` (1-8, submits all before polling), `seed` (fal + replicate; MUAPI has no seed input), `negative_prompt` (replicate only).
 
 **Outputs:** `video` (first clip), `video_paths` (all clips, feed to Video Saver), `status` (provider, route, cost, per-job request IDs).
 

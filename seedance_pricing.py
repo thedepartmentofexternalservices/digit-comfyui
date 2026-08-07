@@ -7,7 +7,7 @@ Single source of truth for:
 
 Prices verified 2026-07-17 against:
 - MUAPI:      POST https://api.muapi.ai/api/v1/models/<m>/estimate-cost (no auth)
-- fal:        https://fal.ai/models/bytedance/seedance-2.0/* pricing notes
+- fal:        https://fal.ai/models/bytedance/seedance-2.0/* and seedance-2.5/* pricing notes
 - Replicate:  https://replicate.com/bytedance/seedance-2.0 published rates
 
 Reprice here; nothing else in the codebase hardcodes a dollar amount.
@@ -152,6 +152,8 @@ MUAPI_COST_PER_SECOND = {
 FAL_COST_PER_SECOND = {
     "seedance-2.0": {"480p": 0.141, "720p": 0.3034, "1080p": 0.682, "4k": 1.5552},
     "seedance-2.0-fast": {"480p": 0.112, "720p": 0.2419},
+    # 2.5 is token-priced; these are fal's published 16:9 per-second approximations.
+    "seedance-2.5": {"480p": 0.2205, "720p": 0.4730},
 }
 FAL_VIDEO_REF_MULTIPLIER = 0.6
 
@@ -258,7 +260,10 @@ def estimate(provider, mode, resolution, duration_seconds, batch_count,
         route = fal_model
         per_second = fal_cost_per_second(fal_model, resolution, has_video_refs)
         if per_second is None:
-            note = f"{fal_model} does not support {resolution} (Fast tops out at 720p)."
+            note = (
+                f"{fal_model} does not support {resolution} "
+                "(seedance-2.0-fast and seedance-2.5 top out at 720p)."
+            )
             return _summary(provider, route, PROVIDER_FILTER_LABELS["fal"], None,
                             duration_seconds, batch_count, note)
         if has_video_refs:

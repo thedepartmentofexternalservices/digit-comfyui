@@ -66,11 +66,12 @@ function renderSummary(data, node) {
     if (data.range) {
         const low = data.low;
         const high = data.high;
+        const autoMax = data.auto_max_duration || 15;
         const line1 = `${titleCase(low.provider)} · ${low.filter} · ${shortRoute(low)} ${resolution}`;
         const line2 =
             low.total == null || high.total == null
                 ? `Est. n/a — ${low.note || high.note || "no published price"}`
-                : `Est. ${formatMoney(low.total)}–${formatMoney(high.total)}  (${low.clips} clip${low.clips > 1 ? "s" : ""} × 4–15s auto)`;
+                : `Est. ${formatMoney(low.total)}–${formatMoney(high.total)}  (${low.clips} clip${low.clips > 1 ? "s" : ""} × 4–${autoMax}s auto)`;
         return [line1, line2];
     }
     const s = data.summary;
