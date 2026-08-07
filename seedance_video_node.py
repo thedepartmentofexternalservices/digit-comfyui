@@ -1,4 +1,4 @@
-"""DIGIT Seedance Video node — Seedance 2.0 across fal, MUAPI, and Replicate.
+"""DIGIT Seedance Video node — Seedance 2.0 / 2.5 across fal, MUAPI, and Replicate.
 
 One node, one provider dropdown. Mode auto-detects from connected inputs:
 - No image/reference inputs connected → text-to-video
@@ -8,10 +8,13 @@ One node, one provider dropdown. Mode auto-detects from connected inputs:
 
 Providers:
 - fal        (FAL_KEY)            — strict filtering, fastest queue.
+                                     Supports seedance-2.0, 2.0-fast, and 2.5.
 - muapi      (MUAPIAPP_API_KEY)   — low/reduced filtering; auto-routes to the
                                      cheapest low-censorship endpoint for the
                                      requested resolution (see seedance_pricing).
+                                     Seedance 2.0 only.
 - replicate  (REPLICATE_API_TOKEN) — ByteDance stock filter, backup provider.
+                                     Seedance 2.0 only.
 
 Cost estimates surface on the node via web/digit_seedance_cost.js and the
 /digit/seedance/estimate route registered below.
@@ -51,22 +54,37 @@ SEEDANCE_APPS = {
         "image_to_video":     "bytedance/seedance-2.0/fast/image-to-video",
         "reference_to_video": "bytedance/seedance-2.0/fast/reference-to-video",
     },
+    "seedance-2.5": {
+        "text_to_video":      "bytedance/seedance-2.5/text-to-video",
+        "image_to_video":     "bytedance/seedance-2.5/image-to-video",
+        "reference_to_video": "bytedance/seedance-2.5/reference-to-video",
+    },
 }
 
 PROVIDERS = seedance_pricing.PROVIDERS
 MODELS = list(SEEDANCE_APPS.keys())
 RESOLUTIONS = ["480p", "720p", "1080p", "4k"]
 FAST_MAX_RESOLUTIONS = {"480p", "720p"}
+SEEDANCE_25_RESOLUTIONS = {"480p", "720p"}
 ASPECT_RATIOS = ["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
-DURATIONS = ["auto", *[str(seconds) for seconds in range(4, 16)]]
+DURATIONS = ["auto", *[str(seconds) for seconds in range(4, 31)]]
 BITRATE_MODES = ["standard", "high"]
 
 REPLICATE_MODEL = "bytedance/seedance-2.0"
+FAL_ONLY_MODELS = frozenset({"seedance-2.5"})
+MODELS_WITH_BITRATE = frozenset({"seedance-2.0", "seedance-2.0-fast"})
 
-MAX_REFERENCE_IMAGES = 9
-MAX_REFERENCE_VIDEOS = 3
-MAX_REFERENCE_AUDIOS = 3
-MAX_REFERENCE_FILES = 12
+# Socket counts match Seedance 2.5 caps; tighter 2.0 limits are enforced at runtime.
+MAX_REFERENCE_IMAGES = 30
+MAX_REFERENCE_VIDEOS = 10
+MAX_REFERENCE_AUDIOS = 10
+MAX_REFERENCE_FILES = 50
+SEEDANCE_20_MAX_REFERENCE_IMAGES = 9
+SEEDANCE_20_MAX_REFERENCE_VIDEOS = 3
+SEEDANCE_20_MAX_REFERENCE_AUDIOS = 3
+SEEDANCE_20_MAX_REFERENCE_FILES = 12
+SEEDANCE_20_MAX_DURATION = 15
+SEEDANCE_25_MAX_DURATION = 30
 MAX_BATCH_COUNT = 8
 MAX_AUTOMATIC_RETRIES = 3
 POLL_INTERVAL_SECONDS = 2.0
@@ -87,6 +105,76 @@ def _is_content_policy_error(error):
         or "content policy" in text
         or "likenesses of real people" in text
     )
+
+
+def _model_max_duration(model):
+    if model == "seedance-2.5":
+        return SEEDANCE_25_MAX_DURATION
+    return SEEDANCE_20_MAX_DURATION
+
+
+def _model_reference_limits(model):
+    if model == "seedance-2.5":
+        return (
+            MAX_REFERENCE_IMAGES,
+            MAX_REFERENCE_VIDEOS,
+            MAX_REFERENCE_AUDIOS,
+            MAX_REFERENCE_FILES,
+        )
+    return (
+        SEEDANCE_20_MAX_REFERENCE_IMAGES,
+        SEEDANCE_20_MAX_REFERENCE_VIDEOS,
+        SEEDANCE_20_MAX_REFERENCE_AUDIOS,
+        SEEDANCE_20_MAX_REFERENCE_FILES,
+    )
+
+
+def _validate_model_provider(provider, model):
+    if model in FAL_ONLY_MODELS and provider != "fal":
+        raise ValueError(
+            f"Model '{model}' is fal-only. Switch provider to fal, "
+            "or use seedance-2.0 / seedance-2.0-fast with muapi or replicate."
+        )
+
+
+def _validate_duration_for_model(model, duration):
+    if duration == "auto":
+        return
+    try:
+        seconds = int(duration)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"Invalid duration '{duration}'.") from error
+    max_duration = _model_max_duration(model)
+    if seconds < 4 or seconds > max_duration:
+        raise ValueError(
+            f"Duration '{duration}' is not supported by {model} "
+            f"(use auto or 4-{max_duration})."
+        )
+
+
+def _validate_references_for_model(model, ref_images, ref_videos, ref_audios):
+    max_images, max_videos, max_audios, max_files = _model_reference_limits(model)
+    if len(ref_images) > max_images:
+        raise ValueError(
+            f"{model} accepts at most {max_images} reference images; "
+            f"{len(ref_images)} are connected."
+        )
+    if len(ref_videos) > max_videos:
+        raise ValueError(
+            f"{model} accepts at most {max_videos} reference videos; "
+            f"{len(ref_videos)} are connected."
+        )
+    if len(ref_audios) > max_audios:
+        raise ValueError(
+            f"{model} accepts at most {max_audios} reference audios; "
+            f"{len(ref_audios)} are connected."
+        )
+    reference_count = len(ref_images) + len(ref_videos) + len(ref_audios)
+    if reference_count > max_files:
+        raise ValueError(
+            f"{model} accepts at most {max_files} reference files total; "
+            f"{reference_count} are connected."
+        )
 
 
 def _tensor_to_png_bytes(tensor):
@@ -215,21 +303,21 @@ class DigitDanceVideo:
                 }),
                 "model": (MODELS, {
                     "default": "seedance-2.0",
-                    "tooltip": "fal only. muapi auto-routes; replicate has one model.",
+                    "tooltip": "fal: 2.0 / 2.0-fast / 2.5. muapi and replicate support 2.0 only.",
                 }),
                 "resolution": (RESOLUTIONS, {
                     "default": "720p",
-                    "tooltip": "Cost driver #1. On muapi, 1080p/4k auto-route to VIP (low censorship, higher price).",
+                    "tooltip": "Cost driver #1. seedance-2.5 is 480p/720p only. On muapi, 1080p/4k auto-route to VIP.",
                 }),
                 "aspect_ratio": (ASPECT_RATIOS, {"default": "16:9"}),
                 "duration": (DURATIONS, {
                     "default": "5",
-                    "tooltip": "Cost driver #2 — billed per second. muapi requires a number (no auto).",
+                    "tooltip": "Cost driver #2 — billed per second. 2.0 max 15s; 2.5 max 30s. muapi requires a number (no auto), 4-15s.",
                 }),
                 "generate_audio": ("BOOLEAN", {"default": True}),
                 "bitrate_mode": (BITRATE_MODES, {
                     "default": "standard",
-                    "tooltip": "High requests a larger, higher-quality encode (fal + muapi).",
+                    "tooltip": "High requests a larger, higher-quality encode (seedance-2.0 on fal + muapi). Ignored for seedance-2.5.",
                 }),
                 "batch_count": ("INT", {
                     "default": 4,
@@ -276,6 +364,9 @@ class DigitDanceVideo:
         if not prompt or not prompt.strip():
             raise ValueError("Prompt is required.")
 
+        _validate_model_provider(provider, model)
+        _validate_duration_for_model(model, duration)
+
         # Collect reference inputs from optional kwargs
         ref_images = [kwargs.get(f"reference_image{i}") for i in range(1, MAX_REFERENCE_IMAGES + 1)]
         ref_images = [img for img in ref_images if img is not None]
@@ -300,12 +391,7 @@ class DigitDanceVideo:
             raise ValueError(
                 "reference_audio requires at least one reference_image or reference_video."
             )
-        reference_count = len(ref_images) + len(ref_videos) + len(ref_audios)
-        if reference_count > MAX_REFERENCE_FILES:
-            raise ValueError(
-                f"Seedance accepts at most {MAX_REFERENCE_FILES} reference files total; "
-                f"{reference_count} are connected."
-            )
+        _validate_references_for_model(model, ref_images, ref_videos, ref_audios)
         if has_last_frame and not has_first_frame:
             raise ValueError("last_frame requires first_frame to be connected.")
 
@@ -370,6 +456,14 @@ class DigitDanceVideo:
                 f"(max {', '.join(sorted(FAST_MAX_RESOLUTIONS))}). "
                 "Switch to seedance-2.0 for 1080p or 4k output."
             )
+        if model == "seedance-2.5" and resolution not in SEEDANCE_25_RESOLUTIONS:
+            raise ValueError(
+                f"Resolution '{resolution}' is not supported by seedance-2.5 "
+                f"(supported: {', '.join(sorted(SEEDANCE_25_RESOLUTIONS))}). "
+                "Switch to seedance-2.0 for 1080p or 4k output."
+            )
+        if model not in SEEDANCE_APPS:
+            raise ValueError(f"Unknown fal model: {model}")
 
         # fal serves first/last-frame through the image-to-video app.
         fal_mode = "image_to_video" if mode == "first_last_frame" else mode
@@ -384,8 +478,9 @@ class DigitDanceVideo:
             "aspect_ratio": aspect_ratio,
             "duration": str(duration),
             "generate_audio": generate_audio,
-            "bitrate_mode": bitrate_mode,
         }
+        if model in MODELS_WITH_BITRATE:
+            args["bitrate_mode"] = bitrate_mode
 
         if fal_mode == "image_to_video":
             args["image_url"] = _upload_image_tensor(fal_client, first_frame)
@@ -685,10 +780,13 @@ class DigitDanceVideo:
             f"Aspect: {args.get('aspect_ratio')}",
             f"Duration: {args.get('duration')}" + ("" if args.get('duration') == "auto" else "s"),
             f"Audio: {args.get('generate_audio')}",
-            f"Bitrate: {args.get('bitrate_mode')}",
+        ]
+        if "bitrate_mode" in args:
+            lines.append(f"Bitrate: {args.get('bitrate_mode')}")
+        lines.extend([
             f"Videos generated: {len(video_paths)}/{len(jobs)}",
             f"Automatic retries: up to {MAX_AUTOMATIC_RETRIES} per job",
-        ]
+        ])
         for job in jobs:
             result_seed = (
                 job["result"].get("seed")
@@ -723,6 +821,11 @@ class DigitDanceVideo:
                 "Pick a number instead of 'auto'."
             )
         duration_seconds = self._duration_int(duration)
+        if duration_seconds < 4 or duration_seconds > SEEDANCE_20_MAX_DURATION:
+            raise ValueError(
+                f"MUAPI requires duration 4-{SEEDANCE_20_MAX_DURATION} seconds; "
+                f"got {duration_seconds}."
+            )
 
         endpoint, route_note = seedance_pricing.resolve_muapi_route(
             mode, resolution, muapi_route
@@ -1254,10 +1357,16 @@ try:
         import asyncio
         loop = asyncio.get_event_loop()
         if duration == "auto":
-            # Show a range across the model's supported 4-15s span.
+            # Show a range across the model's supported duration span.
+            max_auto = _model_max_duration(fal_model)
             low = await loop.run_in_executor(None, _estimate_for, 4, False)
-            high = await loop.run_in_executor(None, _estimate_for, 15, False)
-            return web.json_response({"range": True, "low": low, "high": high})
+            high = await loop.run_in_executor(None, _estimate_for, max_auto, False)
+            return web.json_response({
+                "range": True,
+                "low": low,
+                "high": high,
+                "auto_max_duration": max_auto,
+            })
 
         try:
             duration_seconds = max(1, int(duration))
