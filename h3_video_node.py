@@ -1,4 +1,4 @@
-"""DIGIT MiniMax H3 Video node — H3 across fal, MUAPI, and Replicate.
+"""DIGIT MiniMax Video node — H3 across fal, MUAPI, and Replicate.
 
 One node, one provider dropdown. Mode auto-detects from connected inputs:
 - No image/reference inputs connected → text-to-video

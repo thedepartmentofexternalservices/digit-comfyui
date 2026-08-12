@@ -150,7 +150,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DigitElevenLabsDialogue": "DIGIT ElevenLabs Dialogue",
     "DigitDanceVideo": "DIGIT Seedance Video",
     "DigitReplicateSeedance": "DIGIT Seedance Video (Replicate) [deprecated]",
-    "DigitH3Video": "DIGIT MiniMax H3 Video",
+    "DigitH3Video": "DIGIT MiniMax Video",
     "DigitMuSeedanceCharacter": "DIGIT MU Seedance 2 Character",
     # Shade.inc nodes
     "ShadeMount": "Shade Mount",

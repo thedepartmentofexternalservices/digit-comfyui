@@ -27,7 +27,7 @@ This means:
 | Family | Nodes |
 |--------|-------|
 | **Image generation** | [Gemini Image](#digit-gemini-image) · [GPT Image](#digit-gpt-image) · [Seedream Image](#digit-seedream-image) · [Batch Gemini Image](#digit-batch-gemini-image) |
-| **Video generation** | [Veo Video](#digit-veo-video) · [Gemini Omni Video](#digit-gemini-omni-video) · [Seedance Video](#digit-seedance-video) · [MiniMax H3 Video](#digit-minimax-h3-video) · [Seedance Video (Replicate)](#digit-seedance-video) [deprecated] · [MU Seedance 2 Character](#digit-mu-seedance-2-character) |
+| **Video generation** | [Veo Video](#digit-veo-video) · [Gemini Omni Video](#digit-gemini-omni-video) · [Seedance Video](#digit-seedance-video) · [MiniMax Video](#digit-minimax-video) · [Seedance Video (Replicate)](#digit-seedance-video) [deprecated] · [MU Seedance 2 Character](#digit-mu-seedance-2-character) |
 | **LLM & prompts** | [LLM Query](#digit-llm-query) · [Random Prompt](#digit-random-prompt) · [Prompt Combine](#digit-prompt-combine) · [Text Encode](#digit-text-encode) |
 | **Subtitles / SRT** | [SRT Maker](#digit-srt-maker) · [SRT From Video](#digit-srt-from-video) · [Batch SRT From Video](#digit-batch-srt-from-video) · [SRT Tools](#digit-srt-tools) · [SRT Preview](#digit-srt-preview) |
 | **Pipeline I/O** | [Image Saver](#digit-image-saver) · [Video Saver](#digit-video-saver) · [Image Loader](#digit-image-loader) · [Drag Crop](#digit-drag-crop) · [Crop Info](#digit-crop-info) |
@@ -199,7 +199,7 @@ Replicate is cheaper than MUAPI at 1080p/4K — but only MUAPI passes people thr
 
 ---
 
-### DIGIT MiniMax H3 Video
+### DIGIT MiniMax Video
 
 Generate videos with MiniMax H3 (Hailuo 03) through fal or MUAPI — one node, one `provider` dropdown. Mode auto-detects from connected inputs, same as Seedance:
 

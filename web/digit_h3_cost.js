@@ -1,7 +1,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-// Live cost strip for DIGIT MiniMax H3 Video. Watches provider, resolution,
+// Live cost strip for DIGIT MiniMax Video. Watches provider, resolution,
 // duration, batch_count, and connected inputs, then asks /digit/h3/estimate.
 
 const WATCHED_WIDGETS = [

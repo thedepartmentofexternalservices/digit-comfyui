@@ -57,7 +57,7 @@ def test_price_h3_fal_batch():
     )
     assert row is not None
     assert row["provider"] == "FAL.ai"
-    assert row["tool"] == "MiniMax H3 (FAL)"
+    assert row["tool"] == "MiniMax (FAL)"
     assert row["cost"] == pytest.approx(0.26 * 5 * 2)
 
 

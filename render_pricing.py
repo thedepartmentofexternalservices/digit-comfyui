@@ -49,9 +49,9 @@ PROVIDER_LABELS = {
     "replicate": ("Sea Dance (Replicate)", "Replicate"),
 }
 H3_PROVIDER_LABELS = {
-    "fal": ("MiniMax H3 (FAL)", "FAL.ai"),
-    "muapi": ("MiniMax H3 (MUAPI)", "MUAPI"),
-    "replicate": ("MiniMax H3 (Replicate)", "Replicate"),
+    "fal": ("MiniMax (FAL)", "FAL.ai"),
+    "muapi": ("MiniMax (MUAPI)", "MUAPI"),
+    "replicate": ("MiniMax (Replicate)", "Replicate"),
 }
 
 
@@ -106,7 +106,7 @@ def _provider_meta(provider: str) -> tuple[str, str]:
 
 
 def _h3_provider_meta(provider: str) -> tuple[str, str]:
-    return H3_PROVIDER_LABELS.get(provider, (f"MiniMax H3 ({provider})", provider))
+    return H3_PROVIDER_LABELS.get(provider, (f"MiniMax ({provider})", provider))
 
 
 def price_h3_node(inputs: dict) -> dict | None:
