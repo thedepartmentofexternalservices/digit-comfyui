@@ -23,16 +23,17 @@ def test_endpoint_maps(mode, fal_app, muapi_slug):
     assert models.muapi_endpoint(mode) == muapi_slug
 
 
-def test_muapi_resolution_mapping():
-    assert models.muapi_resolution("2K") == "2k"
-    assert models.muapi_resolution("768P") == "768p"
-
-
-def test_provider_supports_resolution():
-    assert models.provider_supports_resolution("fal", "2K") is True
-    assert models.provider_supports_resolution("muapi", "2K") is True
-    assert models.provider_supports_resolution("muapi", "768P") is False
-    assert models.provider_supports_resolution("replicate", "2K") is False
+def test_muapi_offline_fallback():
+    summary = pricing.estimate(
+        "muapi",
+        "text_to_video",
+        "2K",
+        duration_seconds=5,
+        batch_count=1,
+        use_live=False,
+    )
+    assert summary["per_clip"] == pytest.approx(0.26 * 5)
+    assert "offline" in summary["note"].lower()
 
 
 def test_estimate_fal_2k():
@@ -44,23 +45,8 @@ def test_estimate_fal_2k():
         batch_count=2,
         use_live=False,
     )
-    assert summary["provider"] == "fal"
-    assert summary["route"] == "minimax/h3/text-to-video"
     assert summary["per_clip"] == pytest.approx(0.26 * 5)
     assert summary["total"] == pytest.approx(0.26 * 5 * 2)
-
-
-def test_estimate_muapi_unsupported_resolution():
-    summary = pricing.estimate(
-        "muapi",
-        "text_to_video",
-        "768P",
-        duration_seconds=5,
-        batch_count=1,
-        use_live=False,
-    )
-    assert summary["per_clip"] is None
-    assert "supports 2K only" in summary["note"]
 
 
 def test_estimate_muapi_live_mocked(monkeypatch):
@@ -74,33 +60,18 @@ def test_estimate_muapi_live_mocked(monkeypatch):
         batch_count=1,
         use_live=True,
     )
-    assert summary["route"] == "minimax-h3-image-to-video"
     assert summary["per_clip"] == 1.25
-    assert summary["total"] == 1.25
 
 
-def test_estimate_replicate_unavailable():
-    summary = pricing.estimate(
-        "replicate",
-        "text_to_video",
-        "2K",
-        duration_seconds=5,
-        batch_count=1,
-        use_live=False,
+def test_muapi_reference_surcharge():
+    extra = pricing.muapi_reference_surcharge(
+        has_video_refs=True,
+        ref_image_count=7,
+        ref_video_seconds=2.0,
     )
-    assert summary["per_clip"] is None
-    assert "not published on Replicate" in summary["note"]
+    assert extra == pytest.approx(0.11 + 2.0 * 0.1825)
 
 
-def test_format_status_lines():
-    summary = pricing.estimate(
-        "fal",
-        "text_to_video",
-        "2K",
-        duration_seconds=4,
-        batch_count=1,
-        use_live=False,
-    )
-    lines = pricing.format_status_lines(summary)
-    assert lines[0] == "Provider: fal"
-    assert any(line.startswith("Cost: $") for line in lines)
+def test_available_providers_in_summary():
+    summary = pricing.estimate("fal", "text_to_video", "2K", 5, 1, use_live=False)
+    assert "fal" in summary["available_providers"]

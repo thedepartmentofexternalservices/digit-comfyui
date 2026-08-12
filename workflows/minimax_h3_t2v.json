@@ -1,0 +1,54 @@
+{
+  "last_node_id": 2,
+  "last_link_id": 1,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "DigitH3Video",
+      "pos": [100, 100],
+      "size": [400, 320],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {"name": "video", "type": "VIDEO", "links": [1]},
+        {"name": "video_paths", "type": "VIDEO_PATHS", "links": null},
+        {"name": "status", "type": "STRING", "links": null}
+      ],
+      "properties": {},
+      "widgets_values": [
+        "A cinematic tracking shot of a silver sports car driving through a rain-soaked city at night.",
+        "fal",
+        "2K",
+        "16:9",
+        "5",
+        1,
+        true,
+        true
+      ]
+    },
+    {
+      "id": 2,
+      "type": "DigitVideoSaver",
+      "pos": [560, 100],
+      "size": [300, 120],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {"name": "video", "type": "VIDEO", "link": 1}
+      ],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": ["minimax_h3_output", "mp4"]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 0, "VIDEO"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

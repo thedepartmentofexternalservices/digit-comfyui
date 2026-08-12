@@ -1,15 +1,17 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-// Live cost strip for DIGIT MiniMax Video. Watches provider, resolution,
-// duration, batch_count, and connected inputs, then asks /digit/h3/estimate.
-
 const WATCHED_WIDGETS = [
     "provider",
     "resolution",
     "duration",
     "batch_count",
+    "enable_prompt_expansion",
+    "enable_safety_checker",
 ];
+
+const FAL_ONLY_WIDGETS = ["enable_prompt_expansion", "enable_safety_checker"];
+const MUAPI_RESOLUTIONS = new Set(["2K"]);
 
 function detectMode(node) {
     const linked = (name) => {
@@ -41,6 +43,34 @@ function refImageCount(node) {
 function widgetValue(node, name) {
     const w = (node.widgets || []).find((w) => w.name === name);
     return w ? w.value : undefined;
+}
+
+function setWidgetHidden(node, name, hidden) {
+    const widget = (node.widgets || []).find((w) => w.name === name);
+    if (!widget) return;
+    widget.hidden = hidden;
+    if (widget.inputEl) {
+        widget.inputEl.style.display = hidden ? "none" : "";
+    }
+}
+
+function applyProviderUi(node) {
+    const provider = widgetValue(node, "provider") || "fal";
+    const isFal = provider === "fal";
+    const isMuapi = provider === "muapi";
+
+    for (const name of FAL_ONLY_WIDGETS) {
+        setWidgetHidden(node, name, !isFal);
+    }
+
+    if (isMuapi) {
+        const resolutionWidget = (node.widgets || []).find((w) => w.name === "resolution");
+        if (resolutionWidget && !MUAPI_RESOLUTIONS.has(resolutionWidget.value)) {
+            resolutionWidget.value = "2K";
+        }
+    }
+
+    node.setDirtyCanvas(true, false);
 }
 
 function titleCase(name) {
@@ -97,6 +127,7 @@ app.registerExtension({
         let requestCounter = 0;
 
         const refresh = () => {
+            applyProviderUi(node);
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(async () => {
                 const requestId = ++requestCounter;
@@ -117,7 +148,11 @@ app.registerExtension({
                     });
                     if (requestId !== requestCounter) return;
                     const data = await response.json();
-                    strip.value = renderSummary(data, node).join("\n");
+                    if (data.error) {
+                        strip.value = `Est. n/a — ${data.error}`;
+                    } else {
+                        strip.value = renderSummary(data, node).join("\n");
+                    }
                 } catch (error) {
                     if (requestId !== requestCounter) return;
                     strip.value = "Cost estimate unavailable";

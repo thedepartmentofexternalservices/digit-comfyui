@@ -28,7 +28,7 @@ jobs:
           pip install pytest>=8.0 pytest-mock>=3.12 ruff>=0.6
 
       - name: Ruff
-        run: python -m ruff check tests/
+        run: python -m ruff check tests/ h3_models.py h3_pricing.py h3_payloads.py h3_backends.py h3_video_node.py digit_video_common.py
 
       - name: Pytest
         run: python -m pytest

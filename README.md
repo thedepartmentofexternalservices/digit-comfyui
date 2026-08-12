@@ -215,8 +215,24 @@ H3 outputs native stereo audio on every generation. There is no separate `genera
 | Provider | Env var | Notes |
 |----------|---------|-------|
 | `fal` (default) | `FAL_KEY` | `minimax/h3/*` endpoints. Supports 768P, 2K, and 4K. Optional `enable_prompt_expansion` and `enable_safety_checker`. |
-| `muapi` | `MUAPIAPP_API_KEY` | `minimax-h3-*` endpoints. **2K only** today. |
-| `replicate` | `REPLICATE_API_TOKEN` | **Not published yet** — selecting replicate raises a clear runtime error. |
+| `muapi` | `MUAPIAPP_API_KEY` | `minimax-h3-*` endpoints. **2K only** today. Offline pricing fallback in `h3_pricing.py`. |
+| `replicate` | `REPLICATE_API_TOKEN` | Hidden until `REPLICATE_MODEL` is set in `h3_models.py`. |
+
+**Example workflow:** [`workflows/minimax_h3_t2v.json`](workflows/minimax_h3_t2v.json)
+
+**Smoke test:** `python scripts/manual/h3_smoke.py --provider fal` (validates env, inputs, and live pricing without ComfyUI).
+
+**Architecture:** validation and payload builders live in [`h3_payloads.py`](h3_payloads.py); provider I/O in [`h3_backends.py`](h3_backends.py); shared download/retry helpers in [`digit_video_common.py`](digit_video_common.py).
+
+**Troubleshooting:**
+
+| Error | Fix |
+|-------|-----|
+| `FAL_KEY environment variable is not set` | Export `FAL_KEY` before starting ComfyUI. |
+| `MUAPI supports 2K only` | Set resolution to `2K` when using muapi. |
+| `Reference-to-video requires at least one reference_image or reference_video` | Connect a reference image or video; audio alone is not enough. |
+| `Refusing to download from untrusted URL host` | Provider returned an unexpected CDN URL; open an issue with the request ID from status. |
+| `Duration must be between 4 and 15` | Pick a duration in the supported range. |
 
 **Resolution:** `768P`, `2K`, `4K` on fal; MUAPI accepts `2K` only.
 

@@ -10,8 +10,9 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from . import h3_pricing, seedance_pricing
+    from . import digit_video_common, h3_pricing, seedance_pricing
 except ImportError:  # pragma: no cover — flat import when not packaged
+    import digit_video_common  # type: ignore
     import h3_pricing  # type: ignore
     import seedance_pricing  # type: ignore
 
@@ -65,7 +66,20 @@ def _connected(inputs: dict, key: str) -> bool:
 
 
 def detect_h3_mode(inputs: dict) -> str:
-    return detect_seedance_mode(inputs)
+    has_refs = any(
+        _connected(inputs, f"reference_image{i}") for i in range(1, 10)
+    ) or any(
+        _connected(inputs, f"reference_video{i}") for i in range(1, 4)
+    ) or any(
+        _connected(inputs, f"reference_audio{i}") for i in range(1, 4)
+    )
+    has_first = _connected(inputs, "first_frame")
+    has_last = _connected(inputs, "last_frame")
+    return digit_video_common.detect_video_mode(
+        has_refs=has_refs,
+        has_first_frame=has_first,
+        has_last_frame=has_last,
+    )
 
 
 def detect_seedance_mode(inputs: dict) -> str:
