@@ -128,6 +128,12 @@ def _upload_bytes(headers, file_bytes, filename, content_type):
     return str(file_url)
 
 
+def upload_image_bytes(headers, png_bytes, label="image"):
+    """Upload raw PNG bytes. Returns URL."""
+    name = f"digit_{label}_{uuid.uuid4().hex[:8]}.png"
+    return _upload_bytes(headers, png_bytes, name, "image/png")
+
+
 def upload_image_tensor(headers, image_tensor, label="image"):
     """Upload the first frame of a ComfyUI IMAGE batch. Returns URL."""
     png_bytes = _tensor_to_png_bytes(image_tensor)

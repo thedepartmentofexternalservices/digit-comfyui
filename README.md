@@ -222,6 +222,23 @@ H3 outputs native stereo audio on every generation. There is no separate `genera
 
 **Smoke test:** `python scripts/manual/h3_smoke.py --provider fal` (validates env, inputs, and live pricing without ComfyUI).
 
+**Live endpoint test (fal + MUAPI):** exercises T2V, I2V, and R2V with a generated test image against real APIs:
+
+```bash
+export FAL_KEY=...
+export MUAPIAPP_API_KEY=...
+python scripts/manual/h3_integration_test.py
+
+# Save MP4s locally, fal only, skip R2V:
+python scripts/manual/h3_integration_test.py --provider fal --modes text_to_video,image_to_video --output-dir /tmp/h3-live
+```
+
+Pytest equivalent (skipped in CI by default; needs keys):
+
+```bash
+pytest -m integration tests/test_h3_integration_live.py -v --override-ini "addopts="
+```
+
 **Architecture:** validation and payload builders live in [`h3_payloads.py`](h3_payloads.py); provider I/O in [`h3_backends.py`](h3_backends.py); shared download/retry helpers in [`digit_video_common.py`](digit_video_common.py).
 
 **Troubleshooting:**
