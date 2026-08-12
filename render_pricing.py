@@ -10,12 +10,14 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from . import seedance_pricing
+    from . import h3_pricing, seedance_pricing
 except ImportError:  # pragma: no cover — flat import when not packaged
+    import h3_pricing  # type: ignore
     import seedance_pricing  # type: ignore
 
 # Billable class_types. Voice selector is free; omit it.
 SEEDANCE_CLASS = "DigitDanceVideo"
+H3_CLASS = "DigitH3Video"
 VEO_CLASS = "DigitVeoVideo"
 ELEVENLABS_TTS_CLASSES = frozenset({
     "DigitElevenLabsTTS",
@@ -39,11 +41,17 @@ ELEVENLABS_STT_PER_HOUR = 0.22
 VEO_COST_PER_SECOND = 0.06
 VEO_DEFAULT_DURATION = 8.0
 SEEDANCE_DEFAULT_DURATION = 5.0
+H3_DEFAULT_DURATION = 5.0
 
 PROVIDER_LABELS = {
     "fal": ("Sea Dance (FAL)", "FAL.ai"),
     "muapi": ("Sea Dance (MUAPI)", "MUAPI"),
     "replicate": ("Sea Dance (Replicate)", "Replicate"),
+}
+H3_PROVIDER_LABELS = {
+    "fal": ("MiniMax H3 (FAL)", "FAL.ai"),
+    "muapi": ("MiniMax H3 (MUAPI)", "MUAPI"),
+    "replicate": ("MiniMax H3 (Replicate)", "Replicate"),
 }
 
 
@@ -54,6 +62,10 @@ def _is_link(value: Any) -> bool:
 
 def _connected(inputs: dict, key: str) -> bool:
     return _is_link(inputs.get(key))
+
+
+def detect_h3_mode(inputs: dict) -> str:
+    return detect_seedance_mode(inputs)
 
 
 def detect_seedance_mode(inputs: dict) -> str:
@@ -91,6 +103,48 @@ def parse_duration_seconds(inputs: dict, *, default: float = SEEDANCE_DEFAULT_DU
 
 def _provider_meta(provider: str) -> tuple[str, str]:
     return PROVIDER_LABELS.get(provider, (f"Sea Dance ({provider})", provider))
+
+
+def _h3_provider_meta(provider: str) -> tuple[str, str]:
+    return H3_PROVIDER_LABELS.get(provider, (f"MiniMax H3 ({provider})", provider))
+
+
+def price_h3_node(inputs: dict) -> dict | None:
+    provider = str(inputs.get("provider") or "fal").strip().lower()
+    resolution = str(inputs.get("resolution") or "2K")
+    batch_count = max(1, int(inputs.get("batch_count") or 1))
+    duration = parse_duration_seconds(inputs, default=H3_DEFAULT_DURATION)
+    mode = detect_h3_mode(inputs)
+    has_video_refs = any(_connected(inputs, f"reference_video{i}") for i in range(1, 4))
+    ref_image_count = sum(
+        1 for i in range(1, 10) if _connected(inputs, f"reference_image{i}")
+    )
+
+    summary = h3_pricing.estimate(
+        provider,
+        mode,
+        resolution,
+        duration,
+        batch_count,
+        has_video_refs=has_video_refs,
+        ref_image_count=ref_image_count,
+        use_live=False,
+    )
+    per_clip = summary.get("per_clip")
+    if per_clip is None:
+        return None
+    total = float(per_clip) * batch_count
+
+    tool, provider_label = _h3_provider_meta(provider)
+    return {
+        "cost": round(total, 4),
+        "duration_seconds": float(duration),
+        "tool": tool,
+        "provider": provider_label,
+        "class_type": H3_CLASS,
+        "model": summary.get("route") or "minimax/h3",
+        "batch_count": batch_count,
+    }
 
 
 def price_seedance_node(inputs: dict) -> dict | None:
@@ -219,6 +273,8 @@ def price_node(class_type: str, inputs: dict | None = None) -> dict | None:
 
     if class_type == SEEDANCE_CLASS:
         return price_seedance_node(inputs)
+    if class_type == H3_CLASS:
+        return price_h3_node(inputs)
     if class_type == VEO_CLASS:
         return price_veo_node(inputs)
     if class_type.startswith("DigitElevenLabs"):

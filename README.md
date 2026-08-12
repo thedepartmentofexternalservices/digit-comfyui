@@ -27,7 +27,7 @@ This means:
 | Family | Nodes |
 |--------|-------|
 | **Image generation** | [Gemini Image](#digit-gemini-image) · [GPT Image](#digit-gpt-image) · [Seedream Image](#digit-seedream-image) · [Batch Gemini Image](#digit-batch-gemini-image) |
-| **Video generation** | [Veo Video](#digit-veo-video) · [Gemini Omni Video](#digit-gemini-omni-video) · [Seedance Video](#digit-seedance-video) · [Seedance Video (Replicate)](#digit-seedance-video) [deprecated] · [MU Seedance 2 Character](#digit-mu-seedance-2-character) |
+| **Video generation** | [Veo Video](#digit-veo-video) · [Gemini Omni Video](#digit-gemini-omni-video) · [Seedance Video](#digit-seedance-video) · [MiniMax H3 Video](#digit-minimax-h3-video) · [Seedance Video (Replicate)](#digit-seedance-video) [deprecated] · [MU Seedance 2 Character](#digit-mu-seedance-2-character) |
 | **LLM & prompts** | [LLM Query](#digit-llm-query) · [Random Prompt](#digit-random-prompt) · [Prompt Combine](#digit-prompt-combine) · [Text Encode](#digit-text-encode) |
 | **Subtitles / SRT** | [SRT Maker](#digit-srt-maker) · [SRT From Video](#digit-srt-from-video) · [Batch SRT From Video](#digit-batch-srt-from-video) · [SRT Tools](#digit-srt-tools) · [SRT Preview](#digit-srt-preview) |
 | **Pipeline I/O** | [Image Saver](#digit-image-saver) · [Video Saver](#digit-video-saver) · [Image Loader](#digit-image-loader) · [Drag Crop](#digit-drag-crop) · [Crop Info](#digit-crop-info) |
@@ -196,6 +196,39 @@ Replicate is cheaper than MUAPI at 1080p/4K — but only MUAPI passes people thr
 **Other inputs:** `duration` (4-15s or `auto`; MUAPI requires a number), `aspect_ratio`, `generate_audio`, `bitrate_mode` (fal + muapi), `batch_count` (1-8, submits all before polling), `seed` (fal + replicate; MUAPI has no seed input), `negative_prompt` (replicate only).
 
 **Outputs:** `video` (first clip), `video_paths` (all clips, feed to Video Saver), `status` (provider, route, cost, per-job request IDs).
+
+---
+
+### DIGIT MiniMax H3 Video
+
+Generate videos with MiniMax H3 (Hailuo 03) through fal or MUAPI — one node, one `provider` dropdown. Mode auto-detects from connected inputs, same as Seedance:
+
+- **Nothing connected** → text-to-video
+- **first_frame connected** → image-to-video
+- **first_frame + last_frame** → first/last-frame interpolation
+- **reference inputs connected** → reference-to-video (up to 9 images, 3 videos, 3 audio; cite them in the prompt as `Image 1`, `Video 1`, `Audio 1`)
+
+H3 outputs native stereo audio on every generation. There is no separate `generate_audio` toggle.
+
+**Providers:**
+
+| Provider | Env var | Notes |
+|----------|---------|-------|
+| `fal` (default) | `FAL_KEY` | `minimax/h3/*` endpoints. Supports 768P, 2K, and 4K. Optional `enable_prompt_expansion` and `enable_safety_checker`. |
+| `muapi` | `MUAPIAPP_API_KEY` | `minimax-h3-*` endpoints. **2K only** today. |
+| `replicate` | `REPLICATE_API_TOKEN` | **Not published yet** — selecting replicate raises a clear runtime error. |
+
+**Resolution:** `768P`, `2K`, `4K` on fal; MUAPI accepts `2K` only.
+
+**Duration:** 4–15 seconds (integer). Billed per second on fal ($0.26/s at 2K per fal's published rate).
+
+**Aspect ratio:** Fixed ratios for text-to-video (`adaptive` rejected). Image-to-video and first/last-frame follow the source image. Reference mode supports `adaptive`.
+
+**Other inputs:** `batch_count` (1–8), `enable_prompt_expansion` (fal only), `enable_safety_checker` (fal only). No `seed` input — fal and MUAPI H3 APIs do not expose seed control.
+
+**Live cost strip:** updates as you change provider, resolution, duration, or batch count. fal uses the static price table in `h3_pricing.py`; muapi proxies its live estimate-cost endpoint.
+
+**Outputs:** `video` (first clip), `video_paths` (all clips), `status` (provider, route, cost, per-job request IDs).
 
 ---
 
