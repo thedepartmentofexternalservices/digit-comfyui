@@ -138,6 +138,10 @@ def test_resolve_pipeline_dir_happy_path(tmp_path):
 
 def test_file_stem_typed_name_wins():
     assert projekts_utils.file_stem("12345_demo", "sh010", "comp") == "12345_sh010_comp"
+    assert (
+        projekts_utils.file_stem("26092_tmobile", "26092_fam_0020", "comp")
+        == "26092_fam_0020_comp"
+    )
     assert projekts_utils.file_stem("12345_demo", "sh010", "comp", "") == "12345_sh010_comp"
     assert projekts_utils.file_stem("12345_demo", "sh010", "comp", "hero_wide") == "hero_wide"
     assert projekts_utils.file_stem("12345_demo", "sh010", "comp", "hero_wide.png") == "hero_wide"

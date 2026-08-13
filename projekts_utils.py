@@ -465,7 +465,11 @@ def file_stem(project, shot, task, filename=""):
     if text:
         return sanitize_filename_stem(text)
     task_seg = str(task or "comp").replace("\\", "/").strip("/").split("/")[-1] or "comp"
-    return f"{str(project)[:5]}_{shot}_{task_seg}"
+    prefix = str(project)[:5]
+    shot_seg = str(shot)
+    if shot_seg.startswith(f"{prefix}_"):
+        return f"{shot_seg}_{task_seg}"
+    return f"{prefix}_{shot_seg}_{task_seg}"
 
 
 def next_frame(target_dir, stem, ext, start_frame, frame_pad):
