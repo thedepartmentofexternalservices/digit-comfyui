@@ -102,8 +102,8 @@ def validate_segment(name, value):
     """
     if value is None:
         _reject(f"{name} is required")
-    text = str(value)
-    if text.strip() == "":
+    text = str(value).strip()
+    if text == "":
         _reject(f"{name} is required")
     if is_placeholder(text) or text == SENTINEL_STORAGE_UNAVAILABLE:
         _reject(
@@ -268,6 +268,35 @@ def resolve_pipeline_dir(projekts_root, project, shot, subfolder, task):
             f"Pipeline path escapes PROJEKTS root {projekts_root!r}: {target_dir}"
         )
     return target_dir
+
+
+def create_shot_dir(projekts_root, project, shot, subfolder=None, task=None):
+    """Create <root>/<project>/shots/<shot> and optional subfolder/task.
+
+    Project must already exist. Shot name goes through validate_segment so
+    placeholders and path separators cannot become folders.
+    Returns the created directory path.
+    """
+    if not projekts_root:
+        _reject("projekts_root is required")
+    project = validate_segment("project", project)
+    shot = validate_segment("shot", shot)
+    project_dir = os.path.join(projekts_root, project)
+    if not is_within_roots(project_dir, roots=[projekts_root]):
+        _reject(f"Project path escapes PROJEKTS root {projekts_root!r}")
+    if not _is_dir_safe(project_dir):
+        raise FileNotFoundError(f"project not found: {project}")
+    if subfolder and task:
+        target = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
+        os.makedirs(target, exist_ok=True)
+        logger.info("projekts_shot_created path=%s", target)
+        return target
+    shot_dir = os.path.join(projekts_root, project, "shots", shot)
+    if not is_within_roots(shot_dir, roots=[projekts_root]):
+        _reject(f"Shot path escapes PROJEKTS root {projekts_root!r}")
+    os.makedirs(shot_dir, exist_ok=True)
+    logger.info("projekts_shot_created path=%s", shot_dir)
+    return shot_dir
 
 
 def probe_root(root):

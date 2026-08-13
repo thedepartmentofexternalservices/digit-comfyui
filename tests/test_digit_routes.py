@@ -126,6 +126,52 @@ def test_subfolders_and_tasks_list_children(tmp_path, monkeypatch):
     assert missing_status == 400
 
 
+def test_create_shot_makes_folder_and_lists_it(tmp_path, monkeypatch):
+    async def body(client, root):
+        resp = await client.post(
+            "/digit/create_shot",
+            json={
+                "root": root,
+                "project": "12345_demo",
+                "shot": "sh020",
+                "subfolder": "comfy",
+                "task": "comp",
+            },
+        )
+        return resp.status, await resp.json()
+
+    status, payload = _run(tmp_path, monkeypatch, body)
+    assert status == 200
+    assert payload["ok"] is True
+    assert payload["shot"] == "sh020"
+    assert "sh020" in payload["shots"]
+    assert (tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh020" / "comfy" / "comp").is_dir()
+
+
+def test_create_shot_rejects_placeholder_and_outside_root(tmp_path, monkeypatch):
+    async def body(client, root):
+        bad = await client.post(
+            "/digit/create_shot",
+            json={"root": root, "project": "12345_demo", "shot": "(no projects found)"},
+        )
+        outside = await client.post(
+            "/digit/create_shot",
+            json={"root": "/etc", "project": "12345_demo", "shot": "sh020"},
+        )
+        missing = await client.post(
+            "/digit/create_shot",
+            json={"root": root, "project": "99999_missing", "shot": "sh020"},
+        )
+        return bad.status, await bad.json(), outside.status, missing.status
+
+    bad_status, bad_payload, outside_status, missing_status = _run(tmp_path, monkeypatch, body)
+    assert bad_status == 400
+    assert "Invalid shot" in bad_payload["error"]
+    assert outside_status == 403
+    assert missing_status == 404
+    assert not (tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "(no projects found)").exists()
+
+
 def test_health_is_503_when_root_unlistable(tmp_path, monkeypatch):
     async def body(client, _root):
         def boom(_path):

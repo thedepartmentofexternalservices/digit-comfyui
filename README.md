@@ -480,7 +480,7 @@ Save images to a VFX-pipeline folder structure with auto-incrementing frame numb
 | image | IMAGE | — | Image to save. Batch images save as sequential frames. |
 | projekts_root | COMBO | (auto) | PROJEKTS volume root. Auto-detects available mount points. |
 | project | COMBO | (auto) | Project folder (dynamic dropdown, scans for `#####_` prefix pattern). |
-| shot | COMBO | (auto) | Shot folder (dynamic dropdown, scans `project/shots/`). |
+| shot | STRING | — | Shot folder. Type a new name and click **Create shot**, or pick from the live list. |
 | subfolder | STRING | comfy | Subfolder within the shot (e.g. "comfy", "renders", "plates"). Type a name, or pick from the live list. |
 | task | STRING | comp | Task name (e.g. "comp", "paint", "roto"). Type a name, or pick from the live list. |
 | format | COMBO | png | Output format: PNG, JPEG, or EXR. |
@@ -499,7 +499,7 @@ Save images to a VFX-pipeline folder structure with auto-incrementing frame numb
 
 **Batch support:** If a batched IMAGE tensor is connected (e.g. from a batch generation), each image in the batch is saved as a sequential frame.
 
-**Failure modes:** A shot or project still set to `(no shots found)` raises instead of creating a junk folder. Path segments with `/` or `..` are rejected. Red shot fields mean the saved value is not in the current list — click **Refresh PROJEKTS**. The status line shows `PROJEKTS OK — N projects` or a storage error.
+**Failure modes:** A shot or project still set to `(no shots found)` raises instead of creating a junk folder. Path segments with `/` or `..` are rejected. Changing project reloads that project's shots. Click **Create shot** to mkdir a typed name. The status line shows `PROJEKTS OK — N projects` or a storage error.
 
 ---
 
@@ -513,7 +513,7 @@ Save videos to the same VFX-pipeline folder structure as the Image Saver. Accept
 |-------|------|---------|-------------|
 | projekts_root | COMBO | (auto) | PROJEKTS volume root. |
 | project | COMBO | (auto) | Project folder (dynamic dropdown). |
-| shot | COMBO | (auto) | Shot folder (dynamic dropdown). |
+| shot | STRING | — | Shot folder. Type a new name and click **Create shot**, or pick from the live list. |
 | subfolder | STRING | comfy | Subfolder within the shot. |
 | task | STRING | comp | Task name. |
 | start_frame | INT | 1001 | Starting frame number. |
@@ -526,7 +526,7 @@ Save videos to the same VFX-pipeline folder structure as the Image Saver. Accept
 
 **Batch support:** Connect the `video_paths` output from the Veo node and all generated videos (up to 4) are saved with sequential frame numbers.
 
-**Failure modes:** Same pipeline guards as Image Saver. Placeholder shot names and path traversal raise. Click **Refresh PROJEKTS** if the shot field is red.
+**Failure modes:** Same pipeline guards as Image Saver. Placeholder shot names and path traversal raise. Changing project reloads that project's shots. Click **Create shot** to mkdir a typed name.
 
 ---
 
@@ -540,7 +540,7 @@ Load the latest rendered frame from a shot/task directory. Pairs with the Image 
 |-------|------|---------|-------------|
 | projekts_root | COMBO | (auto) | PROJEKTS volume root. |
 | project | COMBO | (auto) | Project folder (dynamic dropdown). |
-| shot | COMBO | (auto) | Shot folder (dynamic dropdown). |
+| shot | STRING | — | Shot folder. Type a new name and click **Create shot**, or pick from the live list. |
 | subfolder | STRING | comfy | Subfolder within the shot. |
 | task | STRING | comp | Task name. |
 | format | COMBO | png | File format to scan for: png, jpg, exr, tif, tiff, webp. |

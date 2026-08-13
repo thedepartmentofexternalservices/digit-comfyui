@@ -111,6 +111,7 @@ def test_validate_segment_rejects_placeholders_and_separators():
     with pytest.raises(ValueError, match="required"):
         projekts_utils.validate_segment("project", "")
     assert projekts_utils.validate_segment("shot", "ROUND_04") == "ROUND_04"
+    assert projekts_utils.validate_segment("shot", "  sh020  ") == "sh020"
 
 
 def test_resolve_pipeline_dir_rejects_traversal(tmp_path):
@@ -179,6 +180,30 @@ def test_scan_child_folders_lists_subfolders_and_tasks():
         assert projekts_utils.scan_child_folders(root, "12345_demo", "sh010") == ["comfy", "plates"]
         assert projekts_utils.scan_child_folders(root, "12345_demo", "sh010", "comfy") == ["comp", "paint"]
         assert projekts_utils.scan_child_folders(root, "12345_demo", "(no shots found)") == [""]
+
+
+def test_create_shot_dir_makes_shot_and_pipeline(tmp_path):
+    root = tmp_path / "PROJEKTS"
+    (root / "12345_demo").mkdir(parents=True)
+    shot_dir = projekts_utils.create_shot_dir(str(root), "12345_demo", "sh020")
+    assert os.path.isdir(shot_dir)
+    assert shot_dir == os.path.join(str(root), "12345_demo", "shots", "sh020")
+    pipeline = projekts_utils.create_shot_dir(
+        str(root), "12345_demo", "sh020", "comfy", "comp"
+    )
+    assert os.path.isdir(pipeline)
+    assert pipeline.endswith(os.path.join("sh020", "comfy", "comp"))
+
+
+def test_create_shot_dir_rejects_placeholder_and_missing_project(tmp_path):
+    root = tmp_path / "PROJEKTS"
+    (root / "12345_demo").mkdir(parents=True)
+    with pytest.raises(ValueError, match="Invalid shot"):
+        projekts_utils.create_shot_dir(str(root), "12345_demo", "(no shots found)")
+    with pytest.raises(FileNotFoundError, match="project not found"):
+        projekts_utils.create_shot_dir(str(root), "99999_missing", "sh010")
+    junk = root / "12345_demo" / "shots" / "(no shots found)"
+    assert not junk.exists()
 
 
 def test_combo_choices_strips_sentinels():
