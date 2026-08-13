@@ -491,9 +491,6 @@ app.registerExtension({
         node.onWidgetChanged = function(name, value, oldValue) {
             if (origOnWidgetChanged) origOnWidgetChanged.apply(this, arguments);
             if (value === oldValue) return;
-            if (name === "projekts_root") onRootChanged(value);
-            if (name === "project") onProjectChanged(value);
-            if (name === "shot") onShotChanged(value);
             if (["folder", "filename", "name", "format", "start_frame", "frame_pad"].includes(name)) {
                 scheduleOutputPreview(true);
             }
