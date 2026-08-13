@@ -1,8 +1,11 @@
 """Shared PROJEKTS pipeline utilities used by Image Saver, Video Saver, and SRT Maker."""
 
+import logging
 import os
 import re
 import time
+
+logger = logging.getLogger("DigitProjekts")
 
 # Override with DIGIT_PROJEKTS_ROOTS env var (colon-separated paths).
 # Falls back to common mount points, then home directory.
@@ -29,6 +32,26 @@ _LISTDIR_DELAY = 0.15
 
 class StorageUnavailableError(OSError):
     """Raised when a PROJEKTS path cannot be listed after retries."""
+
+
+_last_scan_error = None
+
+
+def get_last_scan_error():
+    """Most recent storage/scan failure, or None."""
+    return _last_scan_error
+
+
+def record_scan_error(message):
+    """Remember a scan failure for /digit/health and journalctl."""
+    global _last_scan_error
+    _last_scan_error = {"message": str(message), "ts": time.time()}
+    logger.warning("projekts_scan_error %s", message)
+
+
+def _reject(message):
+    logger.warning("projekts_path_rejected %s", message)
+    raise ValueError(message)
 
 
 def get_projekts_roots():
@@ -78,21 +101,21 @@ def validate_segment(name, value):
     Raises ValueError. Call before joining segments into a filesystem path.
     """
     if value is None:
-        raise ValueError(f"{name} is required")
+        _reject(f"{name} is required")
     text = str(value)
     if text.strip() == "":
-        raise ValueError(f"{name} is required")
+        _reject(f"{name} is required")
     if is_placeholder(text) or text == SENTINEL_STORAGE_UNAVAILABLE:
-        raise ValueError(
+        _reject(
             f"Invalid {name} {text!r} — pipeline list was empty or unavailable. "
             "Refresh PROJEKTS and re-select a real project/shot."
         )
     if os.path.isabs(text):
-        raise ValueError(f"{name} must be a relative folder name, not an absolute path")
+        _reject(f"{name} must be a relative folder name, not an absolute path")
     if any(sep in text for sep in ("/", "\\", "\x00")):
-        raise ValueError(f"{name} must not contain path separators: {text!r}")
+        _reject(f"{name} must not contain path separators: {text!r}")
     if text in (".", ".."):
-        raise ValueError(f"{name} must not be '.' or '..'")
+        _reject(f"{name} must not be '.' or '..'")
     return text
 
 
@@ -132,9 +155,15 @@ def listdir_resilient(path, retries=_LISTDIR_RETRIES, delay=_LISTDIR_DELAY, slee
             return os.listdir(path)
         except OSError as exc:
             last_error = exc
+            logger.warning(
+                "projekts_listdir_retry path=%s attempt=%s/%s error=%s",
+                path, attempt + 1, attempts, exc,
+            )
             if attempt < attempts - 1:
                 sleeper(delay * (2 ** attempt))
-    raise StorageUnavailableError(f"Cannot list {path}: {last_error}") from last_error
+    message = f"Cannot list {path}: {last_error}"
+    record_scan_error(message)
+    raise StorageUnavailableError(message) from last_error
 
 
 def _is_dir_safe(path):
@@ -195,17 +224,56 @@ def resolve_pipeline_dir(projekts_root, project, shot, subfolder, task):
     escapes `projekts_root`. Call this before os.makedirs.
     """
     if not projekts_root:
-        raise ValueError("projekts_root is required")
+        _reject("projekts_root is required")
     validate_segment("project", project)
     validate_segment("shot", shot)
     validate_segment("subfolder", subfolder)
     validate_segment("task", task)
     target_dir = os.path.join(projekts_root, project, "shots", shot, subfolder, task)
     if not is_within_roots(target_dir, roots=[projekts_root]):
-        raise ValueError(
+        _reject(
             f"Pipeline path escapes PROJEKTS root {projekts_root!r}: {target_dir}"
         )
     return target_dir
+
+
+def probe_root(root):
+    """Time a listdir of one PROJEKTS root for /digit/health."""
+    started = time.perf_counter()
+    try:
+        names = listdir_resilient(root)
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+        projects = [name for name in names if PROJECT_RE.match(name) and not is_placeholder(name)]
+        return {
+            "path": root,
+            "reachable": True,
+            "listdir_ms": elapsed_ms,
+            "project_count": len(projects),
+            "error": None,
+        }
+    except OSError as exc:
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+        record_scan_error(f"{root}: {exc}")
+        return {
+            "path": root,
+            "reachable": False,
+            "listdir_ms": elapsed_ms,
+            "project_count": 0,
+            "error": str(exc),
+        }
+
+
+def health_payload(pack_version=None, comfyui_version=None):
+    """Snapshot of PROJEKTS reachability for /digit/health."""
+    roots = get_projekts_roots()
+    probes = [probe_root(root) for root in roots]
+    return {
+        "ok": any(item["reachable"] for item in probes) if probes else False,
+        "pack_version": pack_version,
+        "comfyui_version": comfyui_version,
+        "roots": probes,
+        "last_scan_error": get_last_scan_error(),
+    }
 
 
 def next_frame(target_dir, prefix, shot, task, ext, start_frame, frame_pad):

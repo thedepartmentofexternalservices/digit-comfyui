@@ -148,6 +148,7 @@ class DigitImageLoader:
         if browse_path and browse_path.strip():
             bp = browse_path.strip()
             if not is_within_roots(bp):
+                logger.warning("browse_path_rejected path=%s", bp)
                 raise ValueError(
                     f"browse_path is outside the allowed PROJEKTS roots: {bp}"
                 )

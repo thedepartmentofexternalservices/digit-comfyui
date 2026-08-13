@@ -16,6 +16,7 @@ from .projekts_utils import (
     SENTINEL_NO_SHOTS,
     combo_choices,
     get_available_projekts_roots,
+    health_payload,
     is_storage_unavailable,
     is_within_roots,
     next_frame,
@@ -71,6 +72,35 @@ async def get_shots(request):
     if not project:
         return web.json_response([SENTINEL_NO_SHOTS], status=400)
     return _json_scan(scan_shots(root, project))
+
+
+def _pack_version():
+    import subprocess
+
+    root = os.path.dirname(os.path.abspath(__file__))
+    try:
+        return subprocess.check_output(
+            ["git", "-C", root, "rev-parse", "--short", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        return "4.0.1"
+
+
+def _comfyui_version():
+    try:
+        import comfyui_version
+
+        return getattr(comfyui_version, "__version__", None) or str(comfyui_version)
+    except ImportError:
+        return None
+
+
+@PromptServer.instance.routes.get("/digit/health")
+async def get_health(request):
+    payload = health_payload(_pack_version(), _comfyui_version())
+    return web.json_response(payload, status=200 if payload["ok"] else 503)
 
 
 class DigitImageSaver:

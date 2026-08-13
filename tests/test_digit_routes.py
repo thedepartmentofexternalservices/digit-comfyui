@@ -84,3 +84,32 @@ def test_browse_forbidden_outside_roots(tmp_path, monkeypatch):
 
     status = _run(tmp_path, monkeypatch, body)
     assert status == 403
+
+
+def test_health_reports_reachable_root(tmp_path, monkeypatch):
+    async def body(client, root):
+        resp = await client.get("/digit/health")
+        return resp.status, await resp.json()
+
+    status, payload = _run(tmp_path, monkeypatch, body)
+    assert status == 200
+    assert payload["ok"] is True
+    assert payload["roots"][0]["path"] == str(tmp_path / "PROJEKTS")
+    assert payload["roots"][0]["reachable"] is True
+    assert payload["roots"][0]["project_count"] == 1
+
+
+def test_health_is_503_when_root_unlistable(tmp_path, monkeypatch):
+    async def body(client, _root):
+        def boom(_path):
+            raise OSError(107, "Transport endpoint is not connected")
+
+        with patch.object(projekts_utils.os, "listdir", side_effect=boom):
+            with patch.object(projekts_utils.time, "sleep"):
+                resp = await client.get("/digit/health")
+                return resp.status, await resp.json()
+
+    status, payload = _run(tmp_path, monkeypatch, body)
+    assert status == 503
+    assert payload["ok"] is False
+    assert payload["last_scan_error"] is not None

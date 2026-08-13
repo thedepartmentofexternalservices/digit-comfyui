@@ -159,6 +159,17 @@ def test_is_within_roots_rejects_escape():
         assert projekts_utils.is_within_roots(outside, roots=[root]) is False
 
 
+def test_health_payload_reachable_root(tmp_path, monkeypatch):
+    root = tmp_path / "PROJEKTS"
+    (root / "12345_demo").mkdir(parents=True)
+    monkeypatch.setenv("DIGIT_PROJEKTS_ROOTS", str(root))
+    payload = projekts_utils.health_payload(pack_version="test", comfyui_version=None)
+    assert payload["ok"] is True
+    assert payload["pack_version"] == "test"
+    assert payload["roots"][0]["reachable"] is True
+    assert payload["roots"][0]["project_count"] == 1
+
+
 def test_combo_choices_strips_sentinels():
     assert projekts_utils.combo_choices(["(no shots found)"]) == [""]
     assert projekts_utils.combo_choices(["(storage unavailable)"]) == [""]
