@@ -495,6 +495,8 @@ Save images to a VFX-pipeline folder structure with auto-incrementing frame numb
 
 **Example:** `~/PROJEKTS/10001_my_project/shots/sh010/comfy/comp/hero_wide.1001.png` (or `10001_sh010_comp.1001.png` if filename is empty). Folder can be one level (`plates`) or deeper (`comfy/comp/v001`).
 
+**Next output:** The node shows the full absolute path and next available frame before rendering. It updates when project, shot, folder, filename, format, start frame, or frame padding changes. After a save, it shows the saved path and advances the next output.
+
 **EXR support:** Full 32-bit float EXR with OpenCV. Supports RGBA with inverted alpha (VFX convention). Tone mapping options let you convert from sRGB gamma space to linear on save.
 
 **Batch support:** If a batched IMAGE tensor is connected (e.g. from a batch generation), each image in the batch is saved as a sequential frame.
@@ -523,6 +525,8 @@ Save videos to the same VFX-pipeline folder structure as the Image Saver. Accept
 | video_paths | VEO_PATHS | — | Batch video paths (from Veo node's VEO_PATHS output). Saves all videos with incrementing frame numbers. |
 
 **Output path:** `PROJEKTS/project/shots/shot/folder/NAME.FRAME.mp4`
+
+**Next output:** The node shows the full absolute `.mp4` path and next available frame before rendering, then shows the saved path and advances after the save.
 
 **Batch support:** Connect the `video_paths` output from the Veo node and all generated videos (up to 4) are saved with sequential frame numbers.
 

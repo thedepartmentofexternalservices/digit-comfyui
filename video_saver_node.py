@@ -10,11 +10,8 @@ import folder_paths
 from .projekts_utils import (
     combo_choices,
     effective_folder,
-    file_stem,
-    folder_task_name,
     get_available_projekts_roots,
-    next_frame,
-    resolve_folder_dir,
+    next_output_path,
     scan_projects,
 )
 
@@ -189,12 +186,16 @@ class DigitVideoSaver:
                    video=None, video_paths=None,
                    prompt=None, extra_pnginfo=None, unique_id=None):
         folder_path = effective_folder(folder, subfolder, task)
-        stem = file_stem(project, shot, folder_task_name(folder_path), filename)
         ext = "mp4"
-        target_dir = resolve_folder_dir(projekts_root, project, shot, folder_path)
+        output = next_output_path(
+            projekts_root, project, shot, folder_path, filename,
+            ext, start_frame, frame_pad,
+        )
+        stem = output["stem"]
+        target_dir = output["directory"]
         os.makedirs(target_dir, exist_ok=True)
 
-        frame_num = next_frame(target_dir, stem, ext, start_frame, frame_pad)
+        frame_num = output["frame"]
 
         metadata = {}
         if prompt is not None:

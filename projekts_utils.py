@@ -484,3 +484,32 @@ def next_frame(target_dir, stem, ext, start_frame, frame_pad):
             if m:
                 max_frame = max(max_frame, int(m.group(1)))
     return max_frame + 1
+
+
+def next_output_path(projekts_root, project, shot, folder, filename="",
+                     ext="png", start_frame=1001, frame_pad=4):
+    """Return the next pipeline output path without creating files or folders."""
+    extension = validate_segment("format", str(ext).lower().lstrip("."))
+    try:
+        start = int(start_frame)
+        padding = int(frame_pad)
+    except (TypeError, ValueError):
+        _reject("start_frame and frame_pad must be integers")
+    if start < 0:
+        _reject("start_frame must be zero or greater")
+    if padding < 1 or padding > 8:
+        _reject("frame_pad must be between 1 and 8")
+
+    folder_path = effective_folder(folder)
+    target_dir = resolve_folder_dir(projekts_root, project, shot, folder_path)
+    stem = file_stem(project, shot, folder_task_name(folder_path), filename)
+    frame = next_frame(target_dir, stem, extension, start, padding)
+    disk_name = f"{stem}.{frame:0{padding}d}.{extension}"
+    return {
+        "path": os.path.join(target_dir, disk_name),
+        "directory": target_dir,
+        "filename": disk_name,
+        "frame": frame,
+        "stem": stem,
+        "extension": extension,
+    }
