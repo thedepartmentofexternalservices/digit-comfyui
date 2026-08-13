@@ -460,16 +460,26 @@ app.registerExtension({
             }
         }
 
+        const comboChangeTimers = new Map();
+        function scheduleComboChange(name, value, handler) {
+            const existing = comboChangeTimers.get(name);
+            if (existing) clearTimeout(existing);
+            comboChangeTimers.set(name, setTimeout(() => {
+                comboChangeTimers.delete(name);
+                handler(value);
+            }, 0));
+        }
+
         const origRootCallback = rootWidget.callback;
-        rootWidget.callback = async function(value) {
+        rootWidget.callback = function(value) {
             if (origRootCallback) origRootCallback.call(this, value);
-            await onRootChanged(value);
+            scheduleComboChange("projekts_root", value, onRootChanged);
         };
 
         const origProjectCallback = projectWidget.callback;
-        projectWidget.callback = async function(value) {
+        projectWidget.callback = function(value) {
             if (origProjectCallback) origProjectCallback.call(this, value);
-            await onProjectChanged(value);
+            scheduleComboChange("project", value, onProjectChanged);
         };
 
         async function onShotChanged(value) {
@@ -491,6 +501,15 @@ app.registerExtension({
         node.onWidgetChanged = function(name, value, oldValue) {
             if (origOnWidgetChanged) origOnWidgetChanged.apply(this, arguments);
             if (value === oldValue) return;
+            if (name === "projekts_root") {
+                scheduleComboChange(name, value, onRootChanged);
+            }
+            if (name === "project") {
+                scheduleComboChange(name, value, onProjectChanged);
+            }
+            if (name === "shot") {
+                scheduleComboChange(name, value, onShotChanged);
+            }
             if (["folder", "filename", "name", "format", "start_frame", "frame_pad"].includes(name)) {
                 scheduleOutputPreview(true);
             }
@@ -498,9 +517,9 @@ app.registerExtension({
 
         if (shotWidget) {
             const origShotCallback = shotWidget.callback;
-            shotWidget.callback = async function(value) {
+            shotWidget.callback = function(value) {
                 if (origShotCallback) origShotCallback.call(this, value);
-                await onShotChanged(value);
+                scheduleComboChange("shot", value, onShotChanged);
             };
         }
 
