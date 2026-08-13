@@ -74,6 +74,25 @@ def test_image_saver_writes_png_inside_root(tmp_path):
     assert path.name == "12345_sh010_comp.1001.png"
 
 
+def test_image_saver_uses_typed_filename(tmp_path):
+    root = _tree(tmp_path)
+    saver = image_saver_node.DigitImageSaver()
+    result = saver.save_image(
+        FakeTensorImage(), str(root), "12345_demo", "sh010",
+        "comfy", "comp", "png", "linear", 95, 1001, 4, False, "none",
+        filename="hero_wide",
+    )
+    path = Path(result["result"][0])
+    assert path.is_file()
+    assert path.name == "hero_wide.1001.png"
+    with pytest.raises(ValueError, match="path separators"):
+        saver.save_image(
+            FakeTensorImage(), str(root), "12345_demo", "sh010",
+            "comfy", "comp", "png", "linear", 95, 1001, 4, False, "none",
+            filename="../evil",
+        )
+
+
 def test_video_saver_rejects_placeholder_shot(tmp_path):
     root = _tree(tmp_path)
     saver = video_saver_node.DigitVideoSaver()
@@ -162,3 +181,5 @@ def test_input_types_does_not_bake_no_shots_found(tmp_path, monkeypatch):
         assert "(no shots found)" not in str(shot)
         assert "(no projects found)" not in projects
         assert "12345_demo" in projects
+        if cls is not image_loader_node.DigitImageLoader:
+            assert types["required"]["filename"][0] == "STRING"

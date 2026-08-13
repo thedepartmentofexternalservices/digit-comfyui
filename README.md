@@ -481,6 +481,7 @@ Save images to a VFX-pipeline folder structure with auto-incrementing frame numb
 | projekts_root | COMBO | (auto) | PROJEKTS volume root. Auto-detects available mount points. |
 | project | COMBO | (auto) | Project folder (dynamic dropdown, scans for `#####_` prefix pattern). |
 | shot | STRING | — | Shot folder. Type a new name and click **Create shot**, or pick from the live list. |
+| filename | STRING | — | What to name the file. Leave empty for `PREFIX_SHOT_TASK`. Frame number and extension are added. |
 | subfolder | STRING | comfy | Subfolder within the shot (e.g. "comfy", "renders", "plates"). Type a name, or pick from the live list. |
 | task | STRING | comp | Task name (e.g. "comp", "paint", "roto"). Type a name, or pick from the live list. |
 | format | COMBO | png | Output format: PNG, JPEG, or EXR. |
@@ -491,9 +492,9 @@ Save images to a VFX-pipeline folder structure with auto-incrementing frame numb
 | show_preview | BOOLEAN | true | Show saved image in ComfyUI's preview panel. |
 | save_workflow | COMBO | ui | Save workflow metadata as JSON sidecar: "ui", "api", "ui + api", or "none". |
 
-**Output path:** `PROJEKTS/project/shots/shot/subfolder/task/PREFIX_SHOT_TASK.FRAME.EXT`
+**Output path:** `PROJEKTS/project/shots/shot/subfolder/task/NAME.FRAME.EXT`
 
-**Example:** `~/PROJEKTS/10001_my_project/shots/sh010/comfy/comp/10001_sh010_comp.1001.png`
+**Example:** `~/PROJEKTS/10001_my_project/shots/sh010/comfy/comp/hero_wide.1001.png` (or `10001_sh010_comp.1001.png` if filename is empty)
 
 **EXR support:** Full 32-bit float EXR with OpenCV. Supports RGBA with inverted alpha (VFX convention). Tone mapping options let you convert from sRGB gamma space to linear on save.
 
@@ -514,6 +515,7 @@ Save videos to the same VFX-pipeline folder structure as the Image Saver. Accept
 | projekts_root | COMBO | (auto) | PROJEKTS volume root. |
 | project | COMBO | (auto) | Project folder (dynamic dropdown). |
 | shot | STRING | — | Shot folder. Type a new name and click **Create shot**, or pick from the live list. |
+| filename | STRING | — | What to name the file. Leave empty for `PREFIX_SHOT_TASK`. Frame number and extension are added. |
 | subfolder | STRING | comfy | Subfolder within the shot. |
 | task | STRING | comp | Task name. |
 | start_frame | INT | 1001 | Starting frame number. |
@@ -522,7 +524,7 @@ Save videos to the same VFX-pipeline folder structure as the Image Saver. Accept
 | video | VIDEO | — | Single video input (from Veo node's VIDEO output). |
 | video_paths | VEO_PATHS | — | Batch video paths (from Veo node's VEO_PATHS output). Saves all videos with incrementing frame numbers. |
 
-**Output path:** `PROJEKTS/project/shots/shot/subfolder/task/PREFIX_SHOT_TASK.FRAME.mp4`
+**Output path:** `PROJEKTS/project/shots/shot/subfolder/task/NAME.FRAME.mp4`
 
 **Batch support:** Connect the `video_paths` output from the Veo node and all generated videos (up to 4) are saved with sequential frame numbers.
 
@@ -977,13 +979,13 @@ PROJEKTS_ROOT/
       SHOT_NAME/          (e.g. sh010)
         SUBFOLDER/        (e.g. comfy)
           TASK/           (e.g. comp)
-            PREFIX_SHOT_TASK.FRAME.EXT
+            NAME.FRAME.EXT            (typed filename, or PREFIX_SHOT_TASK if empty)
 ```
 
 **Example paths:**
 ```
-~/PROJEKTS/10001_my_project/shots/sh010/comfy/comp/10001_sh010_comp.1001.png
-~/PROJEKTS/10001_my_project/shots/sh010/comfy/comp/10001_sh010_comp.1001.mp4
+~/PROJEKTS/10001_my_project/shots/sh010/comfy/comp/hero_wide.1001.png
+~/PROJEKTS/10001_my_project/shots/sh010/comfy/comp/hero_wide.1001.mp4
 ~/PROJEKTS/10001_my_project/assets/auto_srt/dialogue.srt
 ```
 

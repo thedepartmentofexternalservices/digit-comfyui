@@ -9,6 +9,7 @@ import folder_paths
 
 from .projekts_utils import (
     combo_choices,
+    file_stem,
     get_available_projekts_roots,
     next_frame,
     resolve_pipeline_dir,
@@ -152,6 +153,7 @@ class DigitVideoSaver:
                 "projekts_root": (available_roots,),
                 "project": (projects,),
                 "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
+                "filename": ("STRING", {"default": "", "tooltip": "What to name the file. Leave empty for PREFIX_SHOT_TASK. Frame number and extension are added."}),
                 "subfolder": ("STRING", {"default": "comfy"}),
                 "task": ("STRING", {"default": "comp"}),
                 "start_frame": ("INT", {"default": 1001, "min": 0, "max": 99999999, "step": 1}),
@@ -178,15 +180,15 @@ class DigitVideoSaver:
         return float("nan")
 
     def save_video(self, projekts_root, project, shot, subfolder, task,
-                   start_frame, frame_pad, save_workflow,
+                   start_frame, frame_pad, save_workflow, filename="",
                    video=None, video_paths=None,
                    prompt=None, extra_pnginfo=None, unique_id=None):
-        prefix = project[:5]
+        stem = file_stem(project, shot, task, filename)
         ext = "mp4"
         target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
         os.makedirs(target_dir, exist_ok=True)
 
-        frame_num = next_frame(target_dir, prefix, shot, task, ext, start_frame, frame_pad)
+        frame_num = next_frame(target_dir, stem, ext, start_frame, frame_pad)
 
         metadata = {}
         if prompt is not None:
@@ -205,8 +207,8 @@ class DigitVideoSaver:
         saved_paths = []
         for i, src_path in enumerate(source_paths):
             current_frame = frame_num + i
-            filename = f"{prefix}_{shot}_{task}.{current_frame:0{frame_pad}d}.{ext}"
-            filepath = os.path.join(target_dir, filename)
+            disk_name = f"{stem}.{current_frame:0{frame_pad}d}.{ext}"
+            filepath = os.path.join(target_dir, disk_name)
 
             if os.path.isfile(src_path):
                 shutil.copy2(src_path, filepath)

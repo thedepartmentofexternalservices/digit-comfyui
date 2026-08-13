@@ -16,6 +16,7 @@ from .projekts_utils import (
     SENTINEL_NO_SHOTS,
     combo_choices,
     create_shot_dir,
+    file_stem,
     get_available_projekts_roots,
     health_payload,
     is_placeholder,
@@ -185,6 +186,7 @@ class DigitImageSaver:
                 "projekts_root": (available_roots,),
                 "project": (projects,),
                 "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
+                "filename": ("STRING", {"default": "", "tooltip": "What to name the file. Leave empty for PREFIX_SHOT_TASK. Frame number and extension are added."}),
                 "subfolder": ("STRING", {"default": "comfy"}),
                 "task": ("STRING", {"default": "comp"}),
                 "format": (["png", "jpg", "exr"],),
@@ -212,12 +214,12 @@ class DigitImageSaver:
 
     def save_image(self, image, projekts_root, project, shot, subfolder, task,
                    format, tonemap, quality, start_frame, frame_pad, show_preview,
-                   save_workflow, prompt=None, extra_pnginfo=None):
-        prefix = project[:5]
+                   save_workflow, filename="", prompt=None, extra_pnginfo=None):
+        stem = file_stem(project, shot, task, filename)
         target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
         os.makedirs(target_dir, exist_ok=True)
 
-        frame_num = next_frame(target_dir, prefix, shot, task, format, start_frame, frame_pad)
+        frame_num = next_frame(target_dir, stem, format, start_frame, frame_pad)
 
         metadata = {}
         if prompt is not None:
@@ -232,8 +234,8 @@ class DigitImageSaver:
 
         for i in range(batch_size):
             current_frame = frame_num + i
-            filename = f"{prefix}_{shot}_{task}.{current_frame:0{frame_pad}d}.{format}"
-            filepath = os.path.join(target_dir, filename)
+            disk_name = f"{stem}.{current_frame:0{frame_pad}d}.{format}"
+            filepath = os.path.join(target_dir, disk_name)
 
             img_np = image[i].cpu().numpy()
 
@@ -255,7 +257,7 @@ class DigitImageSaver:
             if show_preview and format != "exr":
                 temp_dir = folder_paths.get_temp_directory()
                 os.makedirs(temp_dir, exist_ok=True)
-                preview_name = f"digit_preview_{filename}"
+                preview_name = f"digit_preview_{disk_name}"
                 preview_path = os.path.join(temp_dir, preview_name)
                 img_8bit = np.clip(255.0 * img_np[:, :, :3], 0, 255).astype(np.uint8)
                 Image.fromarray(img_8bit, mode="RGB").save(preview_path, format="PNG")

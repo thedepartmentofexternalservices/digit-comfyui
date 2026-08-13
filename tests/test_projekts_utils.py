@@ -136,15 +136,26 @@ def test_resolve_pipeline_dir_happy_path(tmp_path):
     assert projekts_utils.is_within_roots(target, roots=[str(root)])
 
 
+def test_file_stem_typed_name_wins():
+    assert projekts_utils.file_stem("12345_demo", "sh010", "comp") == "12345_sh010_comp"
+    assert projekts_utils.file_stem("12345_demo", "sh010", "comp", "") == "12345_sh010_comp"
+    assert projekts_utils.file_stem("12345_demo", "sh010", "comp", "hero_wide") == "hero_wide"
+    assert projekts_utils.file_stem("12345_demo", "sh010", "comp", "hero_wide.png") == "hero_wide"
+    with pytest.raises(ValueError, match="path separators"):
+        projekts_utils.file_stem("12345_demo", "sh010", "comp", "../evil")
+    with pytest.raises(ValueError, match="Invalid filename"):
+        projekts_utils.file_stem("12345_demo", "sh010", "comp", "(no shots found)")
+
+
 def test_next_frame_increments_from_existing_files():
     with tempfile.TemporaryDirectory() as target_dir:
-        prefix, shot, task, ext = "12345_demo", "shot_a", "comp", "mp4"
+        stem, ext = "12345_shot_a_comp", "mp4"
         for frame in (1001, 1003):
-            name = f"{prefix}_{shot}_{task}.{frame:05d}.{ext}"
+            name = f"{stem}.{frame:05d}.{ext}"
             open(os.path.join(target_dir, name), "wb").close()
 
         next_frame = projekts_utils.next_frame(
-            target_dir, prefix, shot, task, ext, start_frame=1001, frame_pad=5
+            target_dir, stem, ext, start_frame=1001, frame_pad=5
         )
         assert next_frame == 1004
 

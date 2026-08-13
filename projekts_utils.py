@@ -338,10 +338,32 @@ def health_payload(pack_version=None, comfyui_version=None):
     }
 
 
-def next_frame(target_dir, prefix, shot, task, ext, start_frame, frame_pad):
+_STRIP_EXTS = (".png", ".jpg", ".jpeg", ".exr", ".mp4", ".tif", ".tiff", ".webp", ".mov")
+
+
+def sanitize_filename_stem(value):
+    """Validate a typed file stem and strip a trailing extension if the artist included one."""
+    text = validate_segment("filename", value)
+    lower = text.lower()
+    for suffix in _STRIP_EXTS:
+        if lower.endswith(suffix):
+            text = text[: -len(suffix)]
+            break
+    return validate_segment("filename", text)
+
+
+def file_stem(project, shot, task, filename=""):
+    """Typed filename wins; empty falls back to PREFIX_SHOT_TASK."""
+    text = str(filename or "").strip()
+    if text:
+        return sanitize_filename_stem(text)
+    return f"{str(project)[:5]}_{shot}_{task}"
+
+
+def next_frame(target_dir, stem, ext, start_frame, frame_pad):
     """Find highest existing frame number in target_dir and return next frame number."""
     pat = re.compile(
-        rf"^{re.escape(prefix)}_{re.escape(shot)}_{re.escape(task)}\.(\d+)\.{re.escape(ext)}$"
+        rf"^{re.escape(stem)}\.(\d+)\.{re.escape(ext)}$"
     )
     max_frame = start_frame - 1
     if _is_dir_safe(target_dir):
