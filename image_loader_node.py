@@ -112,12 +112,13 @@ class DigitImageLoader:
         available_roots = get_available_projekts_roots() or [""]
         first_root = available_roots[0]
         projects = combo_choices(scan_projects(first_root)) if first_root else [""]
+        shots = [""]
 
         return {
             "required": {
                 "projekts_root": (available_roots,),
                 "project": (projects,),
-                "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
+                "shot": (shots,),
                 "subfolder": ("STRING", {"default": "comfy"}),
                 "task": ("STRING", {"default": "comp"}),
                 "format": (["png", "jpg", "exr", "tif", "tiff", "webp"],),

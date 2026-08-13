@@ -179,13 +179,14 @@ class DigitImageSaver:
         available_roots = get_available_projekts_roots() or [""]
         first_root = available_roots[0]
         projects = combo_choices(scan_projects(first_root)) if first_root else [""]
+        shots = [""]
 
         return {
             "required": {
                 "image": ("IMAGE",),
                 "projekts_root": (available_roots,),
                 "project": (projects,),
-                "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
+                "shot": (shots,),
                 "filename": ("STRING", {"default": "", "tooltip": "What to name the file. Leave empty for PREFIX_SHOT_TASK. Frame number and extension are added."}),
                 "subfolder": ("STRING", {"default": "comfy"}),
                 "task": ("STRING", {"default": "comp"}),

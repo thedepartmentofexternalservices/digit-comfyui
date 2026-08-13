@@ -62,6 +62,19 @@ function keepValueInOptions(widget, incoming, keepCurrent = true) {
     }
 }
 
+function notify(message, isError) {
+    const toast = app.extensionManager && app.extensionManager.toast;
+    if (toast && toast.add) {
+        toast.add({
+            severity: isError ? "error" : "info",
+            summary: message,
+            life: 4000,
+        });
+        return;
+    }
+    if (isError) console.warn("[DIGIT]", message);
+}
+
 app.registerExtension({
     name: "DIGIT.ImageSaver",
 
@@ -85,51 +98,12 @@ app.registerExtension({
 
         bindComboList(rootWidget);
         bindComboList(projectWidget);
-
-        const filepathWidget = node.addWidget("text", "filepath_display", "", () => {}, {
-            serialize: false,
-        });
-        filepathWidget.inputEl && (filepathWidget.inputEl.readOnly = true);
-
-        const statusWidget = node.addWidget("text", "projekts_status", "", () => {}, {
-            serialize: false,
-        });
-        statusWidget.inputEl && (statusWidget.inputEl.readOnly = true);
-
-        function addPick(sourceWidget, name) {
-            if (!sourceWidget) return null;
-            const start = sourceWidget.value || "";
-            const listRef = { values: [start] };
-            const pick = node.addWidget("combo", name, start, (value) => {
-                sourceWidget.value = value;
-                node.setDirtyCanvas(true);
-                if (sourceWidget.callback) sourceWidget.callback(value);
-            }, { values: () => listRef.values, serialize: false });
-            pick._digitList = listRef;
-            return pick;
-        }
-
-        const shotPick = isHasShotNode ? addPick(shotWidget, "pick shot") : null;
-        const subfolderPick = isHasShotNode ? addPick(subfolderWidget, "subfolder_pick") : null;
-        const taskPick = isHasShotNode ? addPick(taskWidget, "task_pick") : null;
-
-        const onExecuted = node.onExecuted;
-        node.onExecuted = function(data) {
-            if (onExecuted) onExecuted.call(this, data);
-            if (data && data.filepath_text && data.filepath_text.length > 0) {
-                filepathWidget.value = data.filepath_text[0];
-            }
-        };
+        if (shotWidget) bindComboList(shotWidget);
 
         let refreshGen = 0;
         let retryIndex = 0;
         let retryTimer = null;
         let sawConfigure = false;
-
-        function setStatus(message) {
-            statusWidget.value = message || "";
-            node.setDirtyCanvas(true);
-        }
 
         function clearRetry() {
             retryIndex = 0;
@@ -141,12 +115,11 @@ app.registerExtension({
 
         function scheduleRetry(reason) {
             if (retryIndex >= RETRY_MS.length) {
-                setStatus(`${reason}. Click Refresh PROJEKTS.`);
+                notify(`${reason}. Click Refresh.`, true);
                 return;
             }
             const delay = RETRY_MS[retryIndex];
             retryIndex += 1;
-            setStatus(`${reason}. Retrying in ${delay / 1000}s…`);
             retryTimer = setTimeout(() => {
                 refreshAll();
             }, delay);
@@ -160,15 +133,6 @@ app.registerExtension({
                 throw err;
             }
             return resp.json();
-        }
-
-        function shotCombos() {
-            return [shotPick, shotWidget].filter((widget) => widget && widget.options);
-        }
-
-        function shotCombo() {
-            const widgets = shotCombos();
-            return widgets[0] || null;
         }
 
         async function refreshRoots(gen) {
@@ -190,7 +154,7 @@ app.registerExtension({
             if (gen !== refreshGen) return "";
             if (isSentinelList(projects)) {
                 keepValueInOptions(projectWidget, []);
-                return "No projects in this root. Refresh PROJEKTS to retry.";
+                return "No projects in this root.";
             }
             keepValueInOptions(projectWidget, projects);
             return "";
@@ -201,9 +165,8 @@ app.registerExtension({
             const resetIfMissing = Boolean(opts.resetIfMissing);
             const root = opts.root !== undefined ? opts.root : rootWidget.value;
             const project = opts.project !== undefined ? opts.project : projectWidget.value;
-            const targets = shotCombos();
             if (!root || !isUsableName(project)) {
-                targets.forEach((target) => keepValueInOptions(target, [], false));
+                keepValueInOptions(shotWidget, [], false);
                 if (resetIfMissing) shotWidget.value = "";
                 return "";
             }
@@ -212,76 +175,20 @@ app.registerExtension({
             );
             if (gen !== refreshGen) return "";
             if (isSentinelList(shots)) {
-                targets.forEach((target) => keepValueInOptions(target, [], false));
-                if (resetIfMissing) {
-                    shotWidget.value = "";
-                    targets.forEach((target) => { target.value = ""; });
-                }
+                keepValueInOptions(shotWidget, [], false);
+                if (resetIfMissing) shotWidget.value = "";
                 const saved = shotWidget.value;
                 if (!resetIfMissing && isUsableName(saved)) {
-                    return `Saved shot ${saved} not in current list — project has no shots. Create shot or Refresh.`;
+                    return `Saved shot ${saved} is not in this project.`;
                 }
-                return "No shots in this project. Type a name and click Create shot.";
+                return "No shots yet. Click + Shot.";
             }
-            targets.forEach((target) => keepValueInOptions(target, shots, !resetIfMissing));
+            keepValueInOptions(shotWidget, shots, !resetIfMissing);
             if (resetIfMissing && !shots.includes(shotWidget.value)) {
                 shotWidget.value = shots[0] || "";
             }
-            targets.forEach((target) => {
-                if (isUsableName(shotWidget.value) && target.value !== shotWidget.value) {
-                    target.value = shotWidget.value;
-                }
-            });
-            const saved = shotWidget.value;
-            if (!resetIfMissing && isUsableName(saved) && !shots.includes(saved)) {
-                return `Saved shot ${saved} not in current list. Create shot or Refresh.`;
-            }
             node.setDirtyCanvas(true);
             return "";
-        }
-
-        async function refreshSubfolders(gen) {
-            if (!subfolderWidget || !shotWidget) return;
-            const root = rootWidget.value;
-            const project = projectWidget.value;
-            const shot = shotWidget.value;
-            if (!root || !isUsableName(project) || !isUsableName(shot)) return;
-            const items = await fetchJson(
-                `/digit/subfolders?root=${encodeURIComponent(root)}&project=${encodeURIComponent(project)}&shot=${encodeURIComponent(shot)}`
-            );
-            if (gen !== refreshGen) return;
-            const target = subfolderPick || (subfolderWidget && subfolderWidget.options ? subfolderWidget : null);
-            if (target) keepValueInOptions(target, isSentinelList(items) ? [] : items);
-        }
-
-        async function refreshTasks(gen) {
-            if (!taskWidget || !shotWidget || !subfolderWidget) return;
-            const root = rootWidget.value;
-            const project = projectWidget.value;
-            const shot = shotWidget.value;
-            const subfolder = subfolderWidget.value;
-            if (!root || !isUsableName(project) || !isUsableName(shot) || !isUsableName(subfolder)) return;
-            const items = await fetchJson(
-                `/digit/tasks?root=${encodeURIComponent(root)}&project=${encodeURIComponent(project)}&shot=${encodeURIComponent(shot)}&subfolder=${encodeURIComponent(subfolder)}`
-            );
-            if (gen !== refreshGen) return;
-            const target = taskPick || (taskWidget && taskWidget.options ? taskWidget : null);
-            if (target) keepValueInOptions(target, isSentinelList(items) ? [] : items);
-        }
-
-        async function refreshHealth(gen) {
-            try {
-                const resp = await api.fetchApi("/digit/health");
-                if (gen !== refreshGen) return null;
-                const payload = await resp.json();
-                if (!payload || !payload.ok) {
-                    return "PROJEKTS storage degraded. Refresh to retry.";
-                }
-                const count = (payload.roots || []).reduce((sum, item) => sum + (item.project_count || 0), 0);
-                return `PROJEKTS OK — ${count} project${count === 1 ? "" : "s"}`;
-            } catch (_err) {
-                return null;
-            }
         }
 
         async function refreshAll() {
@@ -295,14 +202,9 @@ app.registerExtension({
                 if (isHasShotNode) {
                     shotWarning = await refreshShots(gen);
                     if (gen !== refreshGen) return;
-                    await refreshSubfolders(gen);
-                    if (gen !== refreshGen) return;
-                    await refreshTasks(gen);
-                    if (gen !== refreshGen) return;
                 }
-                const health = await refreshHealth(gen);
                 if (gen !== refreshGen) return;
-                setStatus(shotWarning || projectWarning || health || "");
+                if (projectWarning || shotWarning) notify(shotWarning || projectWarning, true);
                 clearRetry();
             } catch (err) {
                 if (gen !== refreshGen) return;
@@ -323,13 +225,9 @@ app.registerExtension({
                 let shotWarning = "";
                 if (isHasShotNode) {
                     shotWarning = await refreshShots(gen, { resetIfMissing: true });
-                    if (gen !== refreshGen) return;
-                    await refreshSubfolders(gen);
-                    if (gen !== refreshGen) return;
-                    await refreshTasks(gen);
                 }
                 if (gen !== refreshGen) return;
-                setStatus(shotWarning || projectWarning);
+                if (projectWarning || shotWarning) notify(shotWarning || projectWarning, true);
             } catch (err) {
                 if (gen !== refreshGen) return;
                 scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
@@ -347,11 +245,7 @@ app.registerExtension({
                     resetIfMissing: true,
                 });
                 if (gen !== refreshGen) return;
-                await refreshSubfolders(gen);
-                if (gen !== refreshGen) return;
-                await refreshTasks(gen);
-                if (gen !== refreshGen) return;
-                setStatus(warning);
+                if (warning) notify(warning, true);
             } catch (err) {
                 if (gen !== refreshGen) return;
                 scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
@@ -378,54 +272,21 @@ app.registerExtension({
             if (name === "project") onProjectChanged(value);
         };
 
-        if (shotWidget) {
-            const origShotCallback = shotWidget.callback;
-            shotWidget.callback = async function(value) {
-                if (origShotCallback) origShotCallback.call(this, value);
-                if (value !== undefined) shotWidget.value = value;
-                if (shotPick && isUsableName(value)) shotPick.value = value;
-                clearRetry();
-                const gen = ++refreshGen;
-                try {
-                    await refreshSubfolders(gen);
-                    if (gen !== refreshGen) return;
-                    await refreshTasks(gen);
-                } catch (err) {
-                    if (gen !== refreshGen) return;
-                    scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
-                }
-            };
-        }
-
-        if (subfolderWidget) {
-            const origSubfolderCallback = subfolderWidget.callback;
-            subfolderWidget.callback = async function(value) {
-                if (origSubfolderCallback) origSubfolderCallback.call(this, value);
-                clearRetry();
-                const gen = ++refreshGen;
-                try {
-                    await refreshTasks(gen);
-                } catch (err) {
-                    if (gen !== refreshGen) return;
-                    scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
-                }
-            };
-        }
-
         if (isHasShotNode) {
-            node.addWidget("button", "create_shot", "Create shot", async () => {
+            node.addWidget("button", "create_shot", "+ Shot", async () => {
                 const root = rootWidget.value;
                 const project = projectWidget.value;
-                const shot = (shotWidget.value || "").trim();
                 if (!root || !isUsableName(project)) {
-                    setStatus("Pick a project first.");
+                    notify("Pick a project first.", true);
                     return;
                 }
+                const typed = window.prompt("New shot name", "");
+                if (typed == null) return;
+                const shot = typed.trim();
                 if (!isUsableName(shot)) {
-                    setStatus("Type a shot name first.");
+                    notify("Type a shot name.", true);
                     return;
                 }
-                setStatus(`Creating shot ${shot}…`);
                 try {
                     const resp = await api.fetchApi("/digit/create_shot", {
                         method: "POST",
@@ -434,34 +295,28 @@ app.registerExtension({
                             root,
                             project,
                             shot,
-                            subfolder: subfolderWidget ? subfolderWidget.value : "",
-                            task: taskWidget ? taskWidget.value : "",
+                            subfolder: subfolderWidget ? subfolderWidget.value : "comfy",
+                            task: taskWidget ? taskWidget.value : "comp",
                         }),
                     });
                     const payload = await resp.json();
                     if (resp.status !== 200) {
-                        setStatus((payload && payload.error) || `Create shot failed (${resp.status})`);
+                        notify((payload && payload.error) || `+ Shot failed (${resp.status})`, true);
                         return;
                     }
-                    shotWidget.value = payload.shot || shot;
-                    keepValueInOptions(shotCombo(), payload.shots || [shotWidget.value], false);
-                    if (shotPick) shotPick.value = shotWidget.value;
-                    const gen = ++refreshGen;
-                    await refreshSubfolders(gen);
-                    if (gen !== refreshGen) return;
-                    await refreshTasks(gen);
-                    if (gen !== refreshGen) return;
-                    setStatus(`Created shot ${shotWidget.value}`);
+                    const created = payload.shot || shot;
+                    keepValueInOptions(shotWidget, payload.shots || [created], false);
+                    shotWidget.value = created;
                     node.setDirtyCanvas(true);
+                    notify(`Created ${created}`);
                 } catch (_err) {
-                    setStatus("Create shot failed. Refresh PROJEKTS to retry.");
+                    notify("+ Shot failed. Click Refresh.", true);
                 }
             });
         }
 
-        node.addWidget("button", "refresh_projekts", "Refresh PROJEKTS", () => {
+        node.addWidget("button", "refresh_projekts", "Refresh", () => {
             clearRetry();
-            setStatus("Refreshing…");
             refreshAll();
         });
 
