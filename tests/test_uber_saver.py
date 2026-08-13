@@ -47,14 +47,13 @@ def _save_kwargs(root):
     }
 
 
-def test_input_types_keep_media_as_optional_sockets():
+def test_input_types_use_one_union_media_socket():
     types = uber_saver_node.DigitUberSaver.INPUT_TYPES()
-    assert list(types["required"])[:5] == [
-        "projekts_root", "project", "shot", "folder", "name",
+    assert list(types["required"])[:6] == [
+        "media", "projekts_root", "project", "shot", "folder", "name",
     ]
-    assert set(types["optional"]) == {"image", "video", "video_paths"}
-    assert types["optional"]["image"][0] == "IMAGE"
-    assert types["optional"]["video"][0] == "VIDEO"
+    assert types["required"]["media"][0] == "IMAGE,VIDEO,VIDEO_PATHS"
+    assert "optional" not in types
     assert types["required"]["tonemap"][0][0] == "sRGB"
     assert types["required"]["quality"][1]["default"] == 100
 
@@ -63,7 +62,7 @@ def test_uber_saver_saves_image(tmp_path):
     root = _tree(tmp_path)
     result = uber_saver_node.DigitUberSaver().save(
         **_save_kwargs(root),
-        image=FakeTensorImage(),
+        media=FakeTensorImage(),
     )
     path = Path(result["result"][0])
     assert path.is_file()
@@ -79,22 +78,16 @@ def test_uber_saver_saves_video_path(tmp_path):
     source.write_bytes(b"video")
     result = uber_saver_node.DigitUberSaver().save(
         **_save_kwargs(root),
-        video_paths=[str(source)],
+        media=[str(source)],
     )
     path = Path(result["result"][0])
     assert path.read_bytes() == b"video"
     assert path.name == "hero_wide.1001.mp4"
 
 
-def test_uber_saver_requires_exactly_one_media_type(tmp_path):
+def test_uber_saver_requires_media(tmp_path):
     root = _tree(tmp_path)
     saver = uber_saver_node.DigitUberSaver()
     with pytest.raises(ValueError, match="needs an image or video"):
-        saver.save(**_save_kwargs(root))
-    with pytest.raises(ValueError, match="one media type"):
-        saver.save(
-            **_save_kwargs(root),
-            image=FakeTensorImage(),
-            video_paths=[str(tmp_path / "video.mp4")],
-        )
+        saver.save(**_save_kwargs(root), media=None)
     assert not (root / "12345_demo" / "shots" / "sh010" / "comfy").exists()

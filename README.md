@@ -477,16 +477,12 @@ One node to rule them all. Connect an image or video, pick the destination, and 
 
 | Input | Type | Description |
 |-------|------|-------------|
-| image | IMAGE | Optional image or image batch. |
-| video | VIDEO | Optional video. |
-| video_paths | VIDEO_PATHS | Optional batch of video paths. |
+| media | IMAGE, VIDEO, or VIDEO_PATHS | Image, image batch, video, or video-path batch. |
 | project | COMBO | Existing `#####_` project. |
 | shot | COMBO | Existing shot, or make one with **+ Shot**. |
 | folder | COMBO | Existing path under the shot, or make one with **+ Folder**. Paths can be eight levels deep. |
 | name | STRING | File name without frame or extension. Empty uses `PREFIX_SHOT_FOLDER`. |
 | Next output | READ ONLY | Full path and next available frame before saving. |
-
-Connect one media type at a time. Connecting image and video together stops with a clear error.
 
 **Advanced** contains the PROJEKTS root, image format, JPEG quality, EXR tone mapping, start frame, frame padding, preview, and workflow metadata. Video always saves as MP4.
 

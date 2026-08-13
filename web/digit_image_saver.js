@@ -161,21 +161,31 @@ app.registerExtension({
             node.setDirtyCanvas(true);
         }
 
-        function isInputConnected(name) {
+        function connectedInputType(name) {
             const input = node.inputs && node.inputs.find(item => item.name === name);
-            if (!input) return false;
-            return input.link !== null && input.link !== undefined && input.link !== -1
-                || Array.isArray(input.links) && input.links.length > 0;
+            if (!input) return "";
+            const linkId = input.link !== null && input.link !== undefined && input.link !== -1
+                ? input.link
+                : Array.isArray(input.links) && input.links.length
+                    ? input.links[0]
+                    : null;
+            if (linkId === null) return "";
+            const link = app.graph && app.graph.links && app.graph.links[linkId];
+            const origin = link && app.graph.getNodeById(link.origin_id);
+            const output = origin && origin.outputs && origin.outputs[link.origin_slot];
+            return output && typeof output.type === "string" ? output.type : "";
         }
 
         function selectedSaverType() {
             if (isImageSaver) return "image";
             if (isVideoSaver) return "video";
-            const hasImage = isInputConnected("image");
-            const hasVideo = isInputConnected("video") || isInputConnected("video_paths");
-            if (hasImage && hasVideo) return "both";
-            if (hasVideo) return "video";
-            if (hasImage) return "image";
+            const mediaTypes = connectedInputType("media")
+                .split(",")
+                .map(value => value.trim());
+            if (mediaTypes.includes("VIDEO") || mediaTypes.includes("VIDEO_PATHS")) {
+                return "video";
+            }
+            if (mediaTypes.includes("IMAGE")) return "image";
             return "";
         }
 
@@ -204,10 +214,6 @@ app.registerExtension({
                 return;
             }
             const saverType = selectedSaverType();
-            if (isUberSaver && saverType === "both") {
-                setOutputPreview("Connect either image or video, not both.");
-                return;
-            }
             if (isUberSaver && !saverType) {
                 setOutputPreview("Connect an image or video.");
                 return;
