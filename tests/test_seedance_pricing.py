@@ -108,6 +108,42 @@ def test_estimate_fal_unsupported_resolution():
     assert "does not support 1080p" in summary["note"]
 
 
+def test_fal_cost_seedance_25():
+    assert pricing.fal_cost_per_second("seedance-2.5", "480p") == pytest.approx(0.2205)
+    assert pricing.fal_cost_per_second("seedance-2.5", "720p") == pytest.approx(0.4730)
+
+
+@pytest.mark.parametrize("resolution", ["1080p", "4k"])
+def test_estimate_fal_seedance_25_unsupported_resolution(resolution):
+    summary = pricing.estimate(
+        "fal",
+        "image_to_video",
+        resolution,
+        duration_seconds=10,
+        batch_count=1,
+        fal_model="seedance-2.5",
+        use_live=False,
+    )
+    assert summary["per_clip"] is None
+    assert "does not support" in summary["note"]
+    assert "seedance-2.5" in summary["note"]
+
+
+def test_estimate_fal_seedance_25_total():
+    summary = pricing.estimate(
+        "fal",
+        "text_to_video",
+        "720p",
+        duration_seconds=5,
+        batch_count=2,
+        fal_model="seedance-2.5",
+        use_live=False,
+    )
+    assert summary["route"] == "seedance-2.5"
+    assert summary["per_clip"] == pytest.approx(0.4730 * 5)
+    assert summary["total"] == pytest.approx(0.4730 * 5 * 2)
+
+
 def test_format_status_lines():
     summary = pricing.estimate(
         "replicate",
