@@ -262,19 +262,9 @@ app.registerExtension({
         }
 
         if (filenameWidget && outputPreviewWidget) {
-            const origFilenameCallback = filenameWidget.callback;
-            filenameWidget.callback = function(value) {
-                if (origFilenameCallback) {
-                    origFilenameCallback.call(this, value);
-                }
-                if (value !== undefined) filenameWidget.value = value;
-                setOutputPreview("Updating output path...");
-                scheduleOutputPreview(true);
-            };
             if (filenameWidget.inputEl) {
                 filenameWidget.inputEl.addEventListener("input", event => {
                     filenameWidget.value = event.target.value;
-                    setOutputPreview("Updating output path...");
                     scheduleOutputPreview(true);
                 });
             }
