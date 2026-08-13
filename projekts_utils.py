@@ -250,6 +250,109 @@ def scan_child_folders(projekts_root, project, shot, subfolder=None):
     return folders if folders else [""]
 
 
+def parse_folder(folder):
+    """Split a save-dialog folder into (subfolder, task).
+
+    ``comfy/comp`` → two levels. ``plates`` → one level (task is None).
+    Empty defaults to comfy/comp.
+    """
+    text = str(folder or "").strip().replace("\\", "/").strip("/")
+    if text == "":
+        return "comfy", "comp"
+    parts = [part for part in text.split("/") if part]
+    if not parts:
+        return "comfy", "comp"
+    for part in parts:
+        validate_segment("folder", part)
+    if len(parts) > 2:
+        _reject("folder can be at most two levels, like comfy/comp")
+    if len(parts) == 1:
+        return parts[0], None
+    return parts[0], parts[1]
+
+
+def effective_folder(folder="", subfolder=None, task=None):
+    """Prefer the save-dialog folder string; fall back to legacy subfolder/task."""
+    text = str(folder or "").strip()
+    if text:
+        return text
+    if subfolder and task:
+        return f"{subfolder}/{task}"
+    if subfolder:
+        return str(subfolder)
+    return "comfy/comp"
+
+
+def resolve_folder_dir(projekts_root, project, shot, folder):
+    """Build <root>/<project>/shots/<shot>/<folder> after validating segments."""
+    if not projekts_root:
+        _reject("projekts_root is required")
+    validate_segment("project", project)
+    validate_segment("shot", shot)
+    subfolder, task = parse_folder(folder)
+    if task:
+        target_dir = os.path.join(projekts_root, project, "shots", shot, subfolder, task)
+    else:
+        target_dir = os.path.join(projekts_root, project, "shots", shot, subfolder)
+    if not is_within_roots(target_dir, roots=[projekts_root]):
+        _reject(
+            f"Pipeline path escapes PROJEKTS root {projekts_root!r}: {target_dir}"
+        )
+    return target_dir
+
+
+def scan_shot_folders(projekts_root, project, shot):
+    """Existing folders under a shot, as ``sub`` or ``sub/task`` paths."""
+    try:
+        validate_segment("project", project)
+        validate_segment("shot", shot)
+    except ValueError:
+        return [""]
+    shot_dir = os.path.join(projekts_root, project, "shots", shot)
+    if not _is_dir_safe(shot_dir):
+        return [""]
+    try:
+        names = listdir_resilient(shot_dir)
+    except StorageUnavailableError:
+        return [SENTINEL_STORAGE_UNAVAILABLE]
+    found = []
+    for name in sorted(names):
+        if is_placeholder(name):
+            continue
+        child = os.path.join(shot_dir, name)
+        if not _is_dir_safe(child):
+            continue
+        try:
+            kids = [
+                kid for kid in sorted(listdir_resilient(child))
+                if not is_placeholder(kid) and _is_dir_safe(os.path.join(child, kid))
+            ]
+        except StorageUnavailableError:
+            return [SENTINEL_STORAGE_UNAVAILABLE]
+        if kids:
+            found.extend(f"{name}/{kid}" for kid in kids)
+        else:
+            found.append(name)
+    return found if found else [""]
+
+
+def create_folder_dir(projekts_root, project, shot, folder):
+    """Create a folder path under an existing shot. Project and shot must exist."""
+    if not projekts_root:
+        _reject("projekts_root is required")
+    project = validate_segment("project", project)
+    shot = validate_segment("shot", shot)
+    shot_dir = os.path.join(projekts_root, project, "shots", shot)
+    if not is_within_roots(shot_dir, roots=[projekts_root]):
+        _reject(f"Shot path escapes PROJEKTS root {projekts_root!r}")
+    if not _is_dir_safe(shot_dir):
+        raise FileNotFoundError(f"shot not found: {shot}")
+    target = resolve_folder_dir(projekts_root, project, shot, folder)
+    os.makedirs(target, exist_ok=True)
+    logger.info("projekts_folder_created path=%s", target)
+    return target
+
+
 def resolve_pipeline_dir(projekts_root, project, shot, subfolder, task):
     """Build <root>/<project>/shots/<shot>/<subfolder>/<task> after validating segments.
 
@@ -352,12 +455,19 @@ def sanitize_filename_stem(value):
     return validate_segment("filename", text)
 
 
+def folder_task_name(folder):
+    """Last path segment of a save-dialog folder, used in PREFIX_SHOT_TASK."""
+    subfolder, task = parse_folder(folder)
+    return task or subfolder
+
+
 def file_stem(project, shot, task, filename=""):
     """Typed filename wins; empty falls back to PREFIX_SHOT_TASK."""
     text = str(filename or "").strip()
     if text:
         return sanitize_filename_stem(text)
-    return f"{str(project)[:5]}_{shot}_{task}"
+    task_seg = str(task or "comp").replace("\\", "/").strip("/").split("/")[-1] or "comp"
+    return f"{str(project)[:5]}_{shot}_{task_seg}"
 
 
 def next_frame(target_dir, stem, ext, start_frame, frame_pad):

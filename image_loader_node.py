@@ -13,10 +13,12 @@ from server import PromptServer
 from .projekts_utils import (
     FRAME_RE,
     combo_choices,
+    effective_folder,
+    folder_task_name,
     get_available_projekts_roots,
     is_placeholder,
     is_within_roots,
-    resolve_pipeline_dir,
+    resolve_folder_dir,
     scan_projects,
 )
 
@@ -119,8 +121,7 @@ class DigitImageLoader:
                 "projekts_root": (available_roots,),
                 "project": (projects,),
                 "shot": (shots,),
-                "subfolder": ("STRING", {"default": "comfy"}),
-                "task": ("STRING", {"default": "comp"}),
+                "folder": (["comfy/comp"],),
                 "format": (["png", "jpg", "exr", "tif", "tiff", "webp"],),
                 "frame_mode": (["latest", "pinned"], {"default": "latest", "tooltip": "latest loads the highest frame number; pinned loads the exact frame widget."}),
                 "frame": ("INT", {"default": 1001, "min": 0, "max": 99999999, "step": 1}),
@@ -130,6 +131,8 @@ class DigitImageLoader:
                 "browse_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Absolute path to an image file on the filesystem. Highest priority."}),
                 "upload_image": (sorted(files), {"image_upload": True, "tooltip": "Upload or select an image from ComfyUI's input folder."}),
                 "filepath": ("STRING", {"forceInput": True}),
+                "subfolder": ("STRING", {"default": "comfy"}),
+                "task": ("STRING", {"default": "comp"}),
             },
         }
 
@@ -142,9 +145,11 @@ class DigitImageLoader:
         # Always re-execute so we pick up the latest file.
         return float("nan")
 
-    def load_latest(self, projekts_root, project, shot, subfolder, task, format,
+    def load_latest(self, projekts_root, project, shot, subfolder="comfy",
+                    task="comp", format="png",
                     browse_path=None, upload_image=None, filepath=None,
-                    on_missing="error", frame_mode="latest", frame=1001):
+                    on_missing="error", frame_mode="latest", frame=1001,
+                    folder=""):
         import torch
 
         # Priority 0: browse_path — absolute filesystem path typed by the user
@@ -199,15 +204,19 @@ class DigitImageLoader:
                         "result": (torch.from_numpy(empty).unsqueeze(0), "", 0)}
             raise ValueError(msg)
 
-        target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
+        folder_path = effective_folder(folder, subfolder, task)
+        target_dir = resolve_folder_dir(projekts_root, project, shot, folder_path)
         prefix = project[:5]
+        task_name = folder_task_name(folder_path)
 
         if frame_mode == "pinned":
             found_path, frame_num = self._find_frame(
-                target_dir, prefix, shot, task, format, frame
+                target_dir, prefix, shot, task_name, format, frame
             )
         else:
-            found_path, frame_num = self._find_latest(target_dir, prefix, shot, task, format)
+            found_path, frame_num = self._find_latest(
+                target_dir, prefix, shot, task_name, format
+            )
 
         if found_path is None:
             msg = f"(no frames found) in {target_dir}"

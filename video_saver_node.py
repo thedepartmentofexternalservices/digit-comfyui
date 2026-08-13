@@ -9,10 +9,12 @@ import folder_paths
 
 from .projekts_utils import (
     combo_choices,
+    effective_folder,
     file_stem,
+    folder_task_name,
     get_available_projekts_roots,
     next_frame,
-    resolve_pipeline_dir,
+    resolve_folder_dir,
     scan_projects,
 )
 
@@ -154,9 +156,8 @@ class DigitVideoSaver:
                 "projekts_root": (available_roots,),
                 "project": (projects,),
                 "shot": (shots,),
+                "folder": (["comfy/comp"],),
                 "filename": ("STRING", {"default": "", "tooltip": "What to name the file. Leave empty for PREFIX_SHOT_TASK. Frame number and extension are added."}),
-                "subfolder": ("STRING", {"default": "comfy"}),
-                "task": ("STRING", {"default": "comp"}),
                 "start_frame": ("INT", {"default": 1001, "min": 0, "max": 99999999, "step": 1}),
                 "frame_pad": ("INT", {"default": 4, "min": 1, "max": 8, "step": 1}),
                 "save_workflow": (["ui", "api", "ui + api", "none"],),
@@ -164,6 +165,8 @@ class DigitVideoSaver:
             "optional": {
                 "video": ("VIDEO",),
                 "video_paths": ("VIDEO_PATHS",),
+                "subfolder": ("STRING", {"default": "comfy"}),
+                "task": ("STRING", {"default": "comp"}),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -180,13 +183,15 @@ class DigitVideoSaver:
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
-    def save_video(self, projekts_root, project, shot, subfolder, task,
-                   start_frame, frame_pad, save_workflow, filename="",
+    def save_video(self, projekts_root, project, shot, subfolder="comfy",
+                   task="comp", start_frame=1001, frame_pad=4,
+                   save_workflow="none", filename="", folder="",
                    video=None, video_paths=None,
                    prompt=None, extra_pnginfo=None, unique_id=None):
-        stem = file_stem(project, shot, task, filename)
+        folder_path = effective_folder(folder, subfolder, task)
+        stem = file_stem(project, shot, folder_task_name(folder_path), filename)
         ext = "mp4"
-        target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
+        target_dir = resolve_folder_dir(projekts_root, project, shot, folder_path)
         os.makedirs(target_dir, exist_ok=True)
 
         frame_num = next_frame(target_dir, stem, ext, start_frame, frame_pad)

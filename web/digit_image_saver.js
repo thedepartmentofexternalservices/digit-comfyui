@@ -63,11 +63,20 @@ app.registerExtension({
         const rootWidget = node.widgets.find(w => w.name === "projekts_root");
         const projectWidget = node.widgets.find(w => w.name === "project");
         const shotWidget = node.widgets.find(w => w.name === "shot");
-        const subfolderWidget = node.widgets.find(w => w.name === "subfolder");
-        const taskWidget = node.widgets.find(w => w.name === "task");
+        const folderWidget = node.widgets.find(w => w.name === "folder");
+        const leftoverSubfolder = node.widgets.find(w => w.name === "subfolder");
+        const leftoverTask = node.widgets.find(w => w.name === "task");
 
         if (!rootWidget || !projectWidget) return;
         if (isHasShotNode && !shotWidget) return;
+
+        function hideWidget(widget) {
+            if (!widget) return;
+            widget.hidden = true;
+            widget.computeSize = () => [0, -4];
+        }
+        hideWidget(leftoverSubfolder);
+        hideWidget(leftoverTask);
 
         let refreshGen = 0;
         let retryIndex = 0;
@@ -160,6 +169,39 @@ app.registerExtension({
             return "";
         }
 
+        function seedFolders(incoming) {
+            const values = Array.isArray(incoming) ? incoming.filter((name) => isUsableName(name)) : [];
+            if (!values.includes("comfy/comp")) values.unshift("comfy/comp");
+            return values;
+        }
+
+        async function refreshFolders(gen, opts = {}) {
+            if (!folderWidget) return "";
+            const resetIfMissing = Boolean(opts.resetIfMissing);
+            const root = opts.root !== undefined ? opts.root : rootWidget.value;
+            const project = opts.project !== undefined ? opts.project : projectWidget.value;
+            const shot = opts.shot !== undefined ? opts.shot : shotWidget.value;
+            if (!root || !isUsableName(project) || !isUsableName(shot)) {
+                keepValueInOptions(folderWidget, ["comfy/comp"], false);
+                folderWidget.value = "comfy/comp";
+                return "";
+            }
+            const folders = await fetchJson(
+                `/digit/folders?root=${encodeURIComponent(root)}&project=${encodeURIComponent(project)}&shot=${encodeURIComponent(shot)}`
+            );
+            if (gen !== refreshGen) return "";
+            const usable = isSentinelList(folders) ? ["comfy/comp"] : seedFolders(folders);
+            keepValueInOptions(folderWidget, usable, !resetIfMissing);
+            if (resetIfMissing && !usable.includes(folderWidget.value)) {
+                folderWidget.value = "comfy/comp";
+            }
+            if (!isUsableName(folderWidget.value)) {
+                folderWidget.value = "comfy/comp";
+            }
+            node.setDirtyCanvas(true);
+            return "";
+        }
+
         async function refreshAll() {
             const gen = ++refreshGen;
             try {
@@ -170,6 +212,8 @@ app.registerExtension({
                 let shotWarning = "";
                 if (isHasShotNode) {
                     shotWarning = await refreshShots(gen);
+                    if (gen !== refreshGen) return;
+                    await refreshFolders(gen);
                     if (gen !== refreshGen) return;
                 }
                 if (gen !== refreshGen) return;
@@ -194,6 +238,8 @@ app.registerExtension({
                 let shotWarning = "";
                 if (isHasShotNode) {
                     shotWarning = await refreshShots(gen, { resetIfMissing: true });
+                    if (gen !== refreshGen) return;
+                    await refreshFolders(gen, { resetIfMissing: true });
                 }
                 if (gen !== refreshGen) return;
                 if (projectWarning || shotWarning) notify(shotWarning || projectWarning, true);
@@ -214,6 +260,8 @@ app.registerExtension({
                     resetIfMissing: true,
                 });
                 if (gen !== refreshGen) return;
+                await refreshFolders(gen, { resetIfMissing: true });
+                if (gen !== refreshGen) return;
                 if (warning) notify(warning, true);
             } catch (err) {
                 if (gen !== refreshGen) return;
@@ -233,13 +281,35 @@ app.registerExtension({
             await onProjectChanged(value);
         };
 
+        async function onShotChanged(value) {
+            if (!isHasShotNode) return;
+            if (value !== undefined) shotWidget.value = value;
+            clearRetry();
+            const gen = ++refreshGen;
+            try {
+                await refreshFolders(gen, { shot: shotWidget.value, resetIfMissing: true });
+            } catch (err) {
+                if (gen !== refreshGen) return;
+                scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
+            }
+        }
+
         const origOnWidgetChanged = node.onWidgetChanged;
         node.onWidgetChanged = function(name, value, oldValue) {
             if (origOnWidgetChanged) origOnWidgetChanged.apply(this, arguments);
             if (value === oldValue) return;
             if (name === "projekts_root") onRootChanged(value);
             if (name === "project") onProjectChanged(value);
+            if (name === "shot") onShotChanged(value);
         };
+
+        if (shotWidget) {
+            const origShotCallback = shotWidget.callback;
+            shotWidget.callback = async function(value) {
+                if (origShotCallback) origShotCallback.call(this, value);
+                await onShotChanged(value);
+            };
+        }
 
         if (isHasShotNode) {
             node.addWidget("button", "create_shot", "+ Shot", async () => {
@@ -264,8 +334,9 @@ app.registerExtension({
                             root,
                             project,
                             shot,
-                            subfolder: subfolderWidget ? subfolderWidget.value : "comfy",
-                            task: taskWidget ? taskWidget.value : "comp",
+                            folder: folderWidget && isUsableName(folderWidget.value)
+                                ? folderWidget.value
+                                : "comfy/comp",
                         }),
                     });
                     const payload = await resp.json();
@@ -276,10 +347,53 @@ app.registerExtension({
                     const created = payload.shot || shot;
                     keepValueInOptions(shotWidget, payload.shots || [created], false);
                     shotWidget.value = created;
+                    const gen = ++refreshGen;
+                    await refreshFolders(gen, { shot: created });
                     node.setDirtyCanvas(true);
                     notify(`Created ${created}`);
                 } catch (_err) {
                     notify("+ Shot failed. Click Refresh.", true);
+                }
+            });
+
+            node.addWidget("button", "create_folder", "+ Folder", async () => {
+                const root = rootWidget.value;
+                const project = projectWidget.value;
+                const shot = shotWidget.value;
+                if (!root || !isUsableName(project) || !isUsableName(shot)) {
+                    notify("Pick a project and shot first.", true);
+                    return;
+                }
+                const typed = window.prompt(
+                    "Folder (e.g. comfy/paint or plates)",
+                    folderWidget && folderWidget.value ? folderWidget.value : "comfy/comp"
+                );
+                if (typed == null) return;
+                const folder = typed.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+                if (!folder) {
+                    notify("Type a folder path.", true);
+                    return;
+                }
+                try {
+                    const resp = await api.fetchApi("/digit/create_folder", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ root, project, shot, folder }),
+                    });
+                    const payload = await resp.json();
+                    if (resp.status !== 200) {
+                        notify((payload && payload.error) || `+ Folder failed (${resp.status})`, true);
+                        return;
+                    }
+                    const created = payload.folder || folder;
+                    if (folderWidget) {
+                        keepValueInOptions(folderWidget, seedFolders(payload.folders || [created]), false);
+                        folderWidget.value = created;
+                    }
+                    node.setDirtyCanvas(true);
+                    notify(`Created ${created}`);
+                } catch (_err) {
+                    notify("+ Folder failed. Click Refresh.", true);
                 }
             });
         }

@@ -53,7 +53,7 @@ def test_image_saver_rejects_traversal_subfolder(tmp_path):
     outside = tmp_path / "OUTSIDE"
     outside.mkdir()
     saver = image_saver_node.DigitImageSaver()
-    with pytest.raises(ValueError, match="path separators"):
+    with pytest.raises(ValueError, match="must not be"):
         saver.save_image(
             FakeTensorImage(), str(root), "12345_demo", "sh010",
             "../../../../OUTSIDE/evil", "comp", "png", "linear", 95, 1001, 4, False, "none",
@@ -181,5 +181,34 @@ def test_input_types_does_not_bake_no_shots_found(tmp_path, monkeypatch):
         assert "(no shots found)" not in shots
         assert "(no projects found)" not in projects
         assert "12345_demo" in projects
+        assert types["required"]["folder"][0] == ["comfy/comp"]
+        assert "subfolder" not in types["required"]
+        assert "task" not in types["required"]
         if cls is not image_loader_node.DigitImageLoader:
             assert types["required"]["filename"][0] == "STRING"
+
+
+def test_image_saver_writes_to_folder_path(tmp_path):
+    root = _tree(tmp_path)
+    saver = image_saver_node.DigitImageSaver()
+    two = saver.save_image(
+        FakeTensorImage(), str(root), "12345_demo", "sh010",
+        "comfy", "comp", "png", "linear", 95, 1001, 4, False, "none",
+        filename="hero_wide",
+        folder="comfy/comp",
+    )
+    two_path = Path(two["result"][0])
+    assert two_path.is_file()
+    assert two_path.name == "hero_wide.1001.png"
+    assert two_path.parent == root / "12345_demo" / "shots" / "sh010" / "comfy" / "comp"
+
+    one = saver.save_image(
+        FakeTensorImage(), str(root), "12345_demo", "sh010",
+        "comfy", "comp", "png", "linear", 95, 1001, 4, False, "none",
+        filename="plate_ref",
+        folder="plates",
+    )
+    one_path = Path(one["result"][0])
+    assert one_path.is_file()
+    assert one_path.name == "plate_ref.1001.png"
+    assert one_path.parent == root / "12345_demo" / "shots" / "sh010" / "plates"

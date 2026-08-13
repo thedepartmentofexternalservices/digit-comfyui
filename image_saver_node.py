@@ -15,17 +15,22 @@ from server import PromptServer
 from .projekts_utils import (
     SENTINEL_NO_SHOTS,
     combo_choices,
+    create_folder_dir,
     create_shot_dir,
+    effective_folder,
     file_stem,
+    folder_task_name,
     get_available_projekts_roots,
     health_payload,
     is_placeholder,
     is_storage_unavailable,
     is_within_roots,
     next_frame,
-    resolve_pipeline_dir,
+    parse_folder,
+    resolve_folder_dir,
     scan_child_folders,
     scan_projects,
+    scan_shot_folders,
     scan_shots,
 )
 
@@ -132,6 +137,54 @@ async def get_tasks(request):
     return _json_scan(scan_child_folders(root, project, shot, subfolder))
 
 
+@PromptServer.instance.routes.get("/digit/folders")
+async def get_folders(request):
+    root = _constrained_root(request.rel_url.query.get("root", ""))
+    if not root:
+        return web.json_response([], status=403)
+    project = request.rel_url.query.get("project", "")
+    shot = request.rel_url.query.get("shot", "")
+    if not project or not shot:
+        return web.json_response([""], status=400)
+    return _json_scan(scan_shot_folders(root, project, shot))
+
+
+@PromptServer.instance.routes.post("/digit/create_folder")
+async def create_folder(request):
+    try:
+        data = await request.json()
+    except (TypeError, ValueError):
+        return web.json_response({"error": "invalid json"}, status=400)
+    if not isinstance(data, dict):
+        return web.json_response({"error": "invalid json"}, status=400)
+    root = _constrained_root(data.get("root", ""))
+    if not root:
+        return web.json_response({"error": "root not allowed"}, status=403)
+    project = str(data.get("project", "")).strip()
+    shot = str(data.get("shot", "")).strip()
+    folder = str(data.get("folder", "")).strip()
+    try:
+        created = create_folder_dir(root, project, shot, folder)
+    except FileNotFoundError as exc:
+        return web.json_response({"error": str(exc)}, status=404)
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+    except OSError as exc:
+        return web.json_response({"error": str(exc)}, status=503)
+    folders = scan_shot_folders(root, project, shot)
+    if is_storage_unavailable(folders):
+        return web.json_response({"error": "storage unavailable", "folders": folders}, status=503)
+    cleaned = [name for name in folders if name and not is_placeholder(name)]
+    subfolder, task = parse_folder(folder)
+    normalized = f"{subfolder}/{task}" if task else subfolder
+    return web.json_response({
+        "ok": True,
+        "folder": normalized,
+        "path": created,
+        "folders": cleaned,
+    })
+
+
 @PromptServer.instance.routes.post("/digit/create_shot")
 async def create_shot(request):
     try:
@@ -145,10 +198,15 @@ async def create_shot(request):
         return web.json_response({"error": "root not allowed"}, status=403)
     project = str(data.get("project", "")).strip()
     shot = str(data.get("shot", "")).strip()
+    folder = str(data.get("folder") or "").strip()
     subfolder = data.get("subfolder") or None
     task = data.get("task") or None
     try:
-        created = create_shot_dir(root, project, shot, subfolder, task)
+        if folder:
+            created = create_shot_dir(root, project, shot)
+            created = create_folder_dir(root, project, shot, folder)
+        else:
+            created = create_shot_dir(root, project, shot, subfolder, task)
     except FileNotFoundError as exc:
         return web.json_response({"error": str(exc)}, status=404)
     except ValueError as exc:
@@ -187,9 +245,8 @@ class DigitImageSaver:
                 "projekts_root": (available_roots,),
                 "project": (projects,),
                 "shot": (shots,),
+                "folder": (["comfy/comp"],),
                 "filename": ("STRING", {"default": "", "tooltip": "What to name the file. Leave empty for PREFIX_SHOT_TASK. Frame number and extension are added."}),
-                "subfolder": ("STRING", {"default": "comfy"}),
-                "task": ("STRING", {"default": "comp"}),
                 "format": (["png", "jpg", "exr"],),
                 "tonemap": (["linear", "sRGB", "Reinhard"],),
                 "quality": ("INT", {"default": 95, "min": 1, "max": 100, "step": 1}),
@@ -197,6 +254,10 @@ class DigitImageSaver:
                 "frame_pad": ("INT", {"default": 4, "min": 1, "max": 8, "step": 1}),
                 "show_preview": ("BOOLEAN", {"default": True}),
                 "save_workflow": (["ui", "api", "ui + api", "none"],),
+            },
+            "optional": {
+                "subfolder": ("STRING", {"default": "comfy"}),
+                "task": ("STRING", {"default": "comp"}),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -213,11 +274,14 @@ class DigitImageSaver:
         # Always re-execute so frame numbering increments each run.
         return float("nan")
 
-    def save_image(self, image, projekts_root, project, shot, subfolder, task,
-                   format, tonemap, quality, start_frame, frame_pad, show_preview,
-                   save_workflow, filename="", prompt=None, extra_pnginfo=None):
-        stem = file_stem(project, shot, task, filename)
-        target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
+    def save_image(self, image, projekts_root, project, shot, subfolder="comfy",
+                   task="comp", format="png", tonemap="linear", quality=95,
+                   start_frame=1001, frame_pad=4, show_preview=True,
+                   save_workflow="none", filename="", folder="",
+                   prompt=None, extra_pnginfo=None):
+        folder_path = effective_folder(folder, subfolder, task)
+        stem = file_stem(project, shot, folder_task_name(folder_path), filename)
+        target_dir = resolve_folder_dir(projekts_root, project, shot, folder_path)
         os.makedirs(target_dir, exist_ok=True)
 
         frame_num = next_frame(target_dir, stem, format, start_frame, frame_pad)

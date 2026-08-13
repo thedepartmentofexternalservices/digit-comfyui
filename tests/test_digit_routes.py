@@ -126,6 +126,48 @@ def test_subfolders_and_tasks_list_children(tmp_path, monkeypatch):
     assert missing_status == 400
 
 
+def test_folders_lists_nested_paths(tmp_path, monkeypatch):
+    async def body(client, root):
+        shot_dir = tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh010"
+        (shot_dir / "comfy" / "comp").mkdir(parents=True)
+        (shot_dir / "plates").mkdir()
+        listed = await client.get(
+            "/digit/folders",
+            params={"root": root, "project": "12345_demo", "shot": "sh010"},
+        )
+        missing = await client.get(
+            "/digit/folders",
+            params={"root": root, "project": "12345_demo", "shot": ""},
+        )
+        return listed.status, await listed.json(), missing.status
+
+    status, folders, missing_status = _run(tmp_path, monkeypatch, body)
+    assert status == 200
+    assert folders == ["comfy/comp", "plates"]
+    assert missing_status == 400
+
+
+def test_create_folder_makes_path_and_lists_it(tmp_path, monkeypatch):
+    async def body(client, root):
+        resp = await client.post(
+            "/digit/create_folder",
+            json={
+                "root": root,
+                "project": "12345_demo",
+                "shot": "sh010",
+                "folder": "comfy/paint",
+            },
+        )
+        return resp.status, await resp.json()
+
+    status, payload = _run(tmp_path, monkeypatch, body)
+    assert status == 200
+    assert payload["ok"] is True
+    assert payload["folder"] == "comfy/paint"
+    assert "comfy/paint" in payload["folders"]
+    assert (tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh010" / "comfy" / "paint").is_dir()
+
+
 def test_create_shot_makes_folder_and_lists_it(tmp_path, monkeypatch):
     async def body(client, root):
         resp = await client.post(

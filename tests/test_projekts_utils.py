@@ -217,6 +217,55 @@ def test_create_shot_dir_rejects_placeholder_and_missing_project(tmp_path):
     assert not junk.exists()
 
 
+def test_parse_folder_defaults_and_levels():
+    assert projekts_utils.parse_folder("") == ("comfy", "comp")
+    assert projekts_utils.parse_folder("comfy/comp") == ("comfy", "comp")
+    assert projekts_utils.parse_folder("plates") == ("plates", None)
+    assert projekts_utils.parse_folder("  comfy/paint  ") == ("comfy", "paint")
+    with pytest.raises(ValueError, match="two levels"):
+        projekts_utils.parse_folder("comfy/comp/extra")
+    with pytest.raises(ValueError, match="must not be"):
+        projekts_utils.parse_folder("../evil")
+
+
+def test_effective_folder_prefers_folder_over_legacy():
+    assert projekts_utils.effective_folder("comfy/paint", "comfy", "comp") == "comfy/paint"
+    assert projekts_utils.effective_folder("", "comfy", "comp") == "comfy/comp"
+    assert projekts_utils.effective_folder("", "plates", None) == "plates"
+    assert projekts_utils.effective_folder() == "comfy/comp"
+
+
+def test_resolve_folder_dir_two_and_one_level(tmp_path):
+    root = tmp_path / "PROJEKTS"
+    two = projekts_utils.resolve_folder_dir(str(root), "12345_demo", "sh010", "comfy/comp")
+    one = projekts_utils.resolve_folder_dir(str(root), "12345_demo", "sh010", "plates")
+    assert two == os.path.join(str(root), "12345_demo", "shots", "sh010", "comfy", "comp")
+    assert one == os.path.join(str(root), "12345_demo", "shots", "sh010", "plates")
+    with pytest.raises(ValueError, match="must not be"):
+        projekts_utils.resolve_folder_dir(str(root), "12345_demo", "sh010", "../evil")
+
+
+def test_scan_shot_folders_lists_nested_and_leaf(tmp_path):
+    root = tmp_path / "PROJEKTS"
+    shot = root / "12345_demo" / "shots" / "sh010"
+    (shot / "comfy" / "comp").mkdir(parents=True)
+    (shot / "comfy" / "paint").mkdir(parents=True)
+    (shot / "plates").mkdir(parents=True)
+    found = projekts_utils.scan_shot_folders(str(root), "12345_demo", "sh010")
+    assert found == ["comfy/comp", "comfy/paint", "plates"]
+    assert projekts_utils.scan_shot_folders(str(root), "12345_demo", "(no shots found)") == [""]
+
+
+def test_create_folder_dir_makes_path_under_shot(tmp_path):
+    root = tmp_path / "PROJEKTS"
+    (root / "12345_demo" / "shots" / "sh010").mkdir(parents=True)
+    created = projekts_utils.create_folder_dir(str(root), "12345_demo", "sh010", "comfy/paint")
+    assert os.path.isdir(created)
+    assert created.endswith(os.path.join("sh010", "comfy", "paint"))
+    with pytest.raises(FileNotFoundError, match="shot not found"):
+        projekts_utils.create_folder_dir(str(root), "12345_demo", "sh099", "comfy/comp")
+
+
 def test_combo_choices_strips_sentinels():
     assert projekts_utils.combo_choices(["(no shots found)"]) == [""]
     assert projekts_utils.combo_choices(["(storage unavailable)"]) == [""]

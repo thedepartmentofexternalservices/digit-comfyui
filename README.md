@@ -481,9 +481,8 @@ Save images to a VFX-pipeline folder structure with auto-incrementing frame numb
 | projekts_root | COMBO | (auto) | PROJEKTS volume root. Auto-detects available mount points. |
 | project | COMBO | (auto) | Project folder (dynamic dropdown, scans for `#####_` prefix pattern). |
 | shot | COMBO | (auto) | Shot folder. Pick from the list, or click **+ Shot** to make a new one. |
+| folder | COMBO | comfy/comp | Existing folder under the shot. **+ Folder** types a new path (`comfy/paint` or `plates`). |
 | filename | STRING | — | What to name the file. Leave empty for `PREFIX_SHOT_TASK`. Frame number and extension are added. |
-| subfolder | STRING | comfy | Subfolder within the shot (e.g. "comfy", "renders", "plates"). |
-| task | STRING | comp | Task name (e.g. "comp", "paint", "roto"). |
 | format | COMBO | png | Output format: PNG, JPEG, or EXR. |
 | tonemap | COMBO | linear | EXR tone mapping: linear, sRGB, or Reinhard. Only applies to EXR format. |
 | quality | INT | 95 | JPEG quality (1–100). Only applies to JPEG format. |
@@ -492,15 +491,15 @@ Save images to a VFX-pipeline folder structure with auto-incrementing frame numb
 | show_preview | BOOLEAN | true | Show saved image in ComfyUI's preview panel. |
 | save_workflow | COMBO | ui | Save workflow metadata as JSON sidecar: "ui", "api", "ui + api", or "none". |
 
-**Output path:** `PROJEKTS/project/shots/shot/subfolder/task/NAME.FRAME.EXT`
+**Output path:** `PROJEKTS/project/shots/shot/folder/NAME.FRAME.EXT`
 
-**Example:** `~/PROJEKTS/10001_my_project/shots/sh010/comfy/comp/hero_wide.1001.png` (or `10001_sh010_comp.1001.png` if filename is empty)
+**Example:** `~/PROJEKTS/10001_my_project/shots/sh010/comfy/comp/hero_wide.1001.png` (or `10001_sh010_comp.1001.png` if filename is empty). A slash in folder is `subfolder/task`. No slash is one level (`plates`).
 
 **EXR support:** Full 32-bit float EXR with OpenCV. Supports RGBA with inverted alpha (VFX convention). Tone mapping options let you convert from sRGB gamma space to linear on save.
 
 **Batch support:** If a batched IMAGE tensor is connected (e.g. from a batch generation), each image in the batch is saved as a sequential frame.
 
-**Failure modes:** A shot or project still set to `(no shots found)` raises instead of creating a junk folder. Path segments with `/` or `..` are rejected. Changing project reloads that project's shots. **+ Shot** asks for a name and mkdirs it.
+**Failure modes:** A shot or project still set to `(no shots found)` raises instead of creating a junk folder. Folder paths with `..` or more than two levels are rejected. Changing project reloads that project's shots. Changing shot reloads folders. **+ Shot** and **+ Folder** ask for a name and mkdir it.
 
 ---
 
@@ -515,26 +514,25 @@ Save videos to the same VFX-pipeline folder structure as the Image Saver. Accept
 | projekts_root | COMBO | (auto) | PROJEKTS volume root. |
 | project | COMBO | (auto) | Project folder (dynamic dropdown). |
 | shot | COMBO | (auto) | Shot folder. Pick from the list, or click **+ Shot** to make a new one. |
+| folder | COMBO | comfy/comp | Existing folder under the shot. **+ Folder** types a new path. |
 | filename | STRING | — | What to name the file. Leave empty for `PREFIX_SHOT_TASK`. Frame number and extension are added. |
-| subfolder | STRING | comfy | Subfolder within the shot. |
-| task | STRING | comp | Task name. |
 | start_frame | INT | 1001 | Starting frame number. |
 | frame_pad | INT | 4 | Frame number padding. |
 | save_workflow | COMBO | ui | Save workflow metadata as JSON sidecar: "ui", "api", "ui + api", or "none". |
 | video | VIDEO | — | Single video input (from Veo node's VIDEO output). |
 | video_paths | VEO_PATHS | — | Batch video paths (from Veo node's VEO_PATHS output). Saves all videos with incrementing frame numbers. |
 
-**Output path:** `PROJEKTS/project/shots/shot/subfolder/task/NAME.FRAME.mp4`
+**Output path:** `PROJEKTS/project/shots/shot/folder/NAME.FRAME.mp4`
 
 **Batch support:** Connect the `video_paths` output from the Veo node and all generated videos (up to 4) are saved with sequential frame numbers.
 
-**Failure modes:** Same pipeline guards as Image Saver. Placeholder shot names and path traversal raise. Changing project reloads that project's shots. **+ Shot** asks for a name and mkdirs it.
+**Failure modes:** Same pipeline guards as Image Saver. Placeholder shot names and path traversal raise. Changing project reloads that project's shots. **+ Shot** and **+ Folder** ask for a name and mkdir it.
 
 ---
 
 ### DIGIT Image Loader
 
-Load the latest rendered frame from a shot/task directory. Pairs with the Image Saver — point both at the same shot and task to always have the most recent output available as an IMAGE tensor.
+Load the latest rendered frame from a shot folder. Pairs with the Image Saver — point both at the same shot and folder to always have the most recent output available as an IMAGE tensor.
 
 **Inputs:**
 
@@ -543,8 +541,7 @@ Load the latest rendered frame from a shot/task directory. Pairs with the Image 
 | projekts_root | COMBO | (auto) | PROJEKTS volume root. |
 | project | COMBO | (auto) | Project folder (dynamic dropdown). |
 | shot | COMBO | (auto) | Shot folder. Pick from the list, or click **+ Shot** to make a new one. |
-| subfolder | STRING | comfy | Subfolder within the shot. |
-| task | STRING | comp | Task name. |
+| folder | COMBO | comfy/comp | Existing folder under the shot. **+ Folder** types a new path. |
 | format | COMBO | png | File format to scan for: png, jpg, exr, tif, tiff, webp. |
 | frame_mode | COMBO | latest | `latest` loads the highest frame number. `pinned` loads the exact `frame`. |
 | frame | INT | 1001 | Used when `frame_mode` is `pinned`. |
@@ -977,9 +974,8 @@ PROJEKTS_ROOT/
   PROJECT_NAME/           (e.g. 10001_my_project)
     shots/
       SHOT_NAME/          (e.g. sh010)
-        SUBFOLDER/        (e.g. comfy)
-          TASK/           (e.g. comp)
-            NAME.FRAME.EXT            (typed filename, or PREFIX_SHOT_TASK if empty)
+        FOLDER/           (e.g. comfy/comp, or plates)
+          NAME.FRAME.EXT              (typed filename, or PREFIX_SHOT_TASK if empty)
 ```
 
 **Example paths:**
