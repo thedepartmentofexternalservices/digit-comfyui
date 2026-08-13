@@ -57,6 +57,9 @@ app.registerExtension({
 
         const isHasShotNode = hasShotNodes.includes(node.comfyClass);
         const isProjectOnlyNode = projectOnlyNodes.includes(node.comfyClass);
+        const isImageSaver = node.comfyClass === "DigitImageSaver";
+        const isVideoSaver = node.comfyClass === "DigitVideoSaver";
+        const isSaver = isImageSaver || isVideoSaver;
 
         if (!isHasShotNode && !isProjectOnlyNode) return;
 
@@ -64,6 +67,10 @@ app.registerExtension({
         const projectWidget = node.widgets.find(w => w.name === "project");
         const shotWidget = node.widgets.find(w => w.name === "shot");
         const folderWidget = node.widgets.find(w => w.name === "folder");
+        const filenameWidget = node.widgets.find(w => w.name === "filename");
+        const formatWidget = node.widgets.find(w => w.name === "format");
+        const startFrameWidget = node.widgets.find(w => w.name === "start_frame");
+        const framePadWidget = node.widgets.find(w => w.name === "frame_pad");
         const leftoverSubfolder = node.widgets.find(w => w.name === "subfolder");
         const leftoverTask = node.widgets.find(w => w.name === "task");
 
@@ -79,9 +86,106 @@ app.registerExtension({
         hideWidget(leftoverTask);
 
         let refreshGen = 0;
+        let previewGen = 0;
+        let previewTimer = null;
+        let lastSavedPath = "";
         let retryIndex = 0;
         let retryTimer = null;
         let sawConfigure = false;
+
+        let outputPreviewWidget = null;
+        if (isSaver) {
+            outputPreviewWidget = node.addWidget(
+                "text", "Next output", "Pick a project.", () => {}, {
+                    multiline: true,
+                    serialize: false,
+                }
+            );
+            if (outputPreviewWidget.inputEl) {
+                outputPreviewWidget.inputEl.readOnly = true;
+                outputPreviewWidget.inputEl.rows = 2;
+                outputPreviewWidget.inputEl.style.fontFamily = "monospace";
+                outputPreviewWidget.inputEl.style.fontSize = "11px";
+            }
+            const previewIndex = node.widgets.indexOf(outputPreviewWidget);
+            const filenameIndex = node.widgets.indexOf(filenameWidget);
+            if (previewIndex >= 0 && filenameIndex >= 0) {
+                node.widgets.splice(previewIndex, 1);
+                node.widgets.splice(filenameIndex + 1, 0, outputPreviewWidget);
+            }
+        }
+
+        function setOutputPreview(message) {
+            if (!outputPreviewWidget) return;
+            outputPreviewWidget.value = message;
+            if (outputPreviewWidget.inputEl) {
+                outputPreviewWidget.inputEl.title = message;
+            }
+            node.setDirtyCanvas(true);
+        }
+
+        async function refreshOutputPreview() {
+            if (!outputPreviewWidget) return;
+            const gen = ++previewGen;
+            const root = rootWidget.value;
+            const project = projectWidget.value;
+            const shot = shotWidget && shotWidget.value;
+            const folder = folderWidget && folderWidget.value;
+
+            if (!root) {
+                setOutputPreview("Pick a PROJEKTS root.");
+                return;
+            }
+            if (!isUsableName(project)) {
+                setOutputPreview("Pick a project.");
+                return;
+            }
+            if (!isUsableName(shot)) {
+                setOutputPreview("Pick a shot.");
+                return;
+            }
+            if (!isUsableName(folder)) {
+                setOutputPreview("Pick or create a folder.");
+                return;
+            }
+
+            const params = new URLSearchParams({
+                saver: isVideoSaver ? "video" : "image",
+                root,
+                project,
+                shot,
+                folder,
+                filename: filenameWidget ? filenameWidget.value || "" : "",
+                format: formatWidget ? formatWidget.value || "png" : "png",
+                start_frame: startFrameWidget ? startFrameWidget.value : 1001,
+                frame_pad: framePadWidget ? framePadWidget.value : 4,
+            });
+
+            try {
+                const resp = await api.fetchApi(`/digit/output_preview?${params.toString()}`);
+                const payload = await resp.json();
+                if (gen !== previewGen) return;
+                if (resp.status !== 200) {
+                    setOutputPreview((payload && payload.error) || `Path preview failed (${resp.status})`);
+                    return;
+                }
+                const nextLine = `Next: ${payload.path}`;
+                setOutputPreview(lastSavedPath
+                    ? `Saved: ${lastSavedPath}\n${nextLine}`
+                    : nextLine
+                );
+            } catch (_err) {
+                if (gen !== previewGen) return;
+                setOutputPreview("Path preview unavailable. Click Refresh.");
+            }
+        }
+
+        function scheduleOutputPreview(clearSaved = false) {
+            if (!outputPreviewWidget) return;
+            if (clearSaved) lastSavedPath = "";
+            if (previewTimer) clearTimeout(previewTimer);
+            previewTimer = setTimeout(refreshOutputPreview, 250);
+        }
 
         function clearRetry() {
             retryIndex = 0;
@@ -219,6 +323,7 @@ app.registerExtension({
                 if (gen !== refreshGen) return;
                 if (projectWarning || shotWarning) notify(shotWarning || projectWarning, true);
                 clearRetry();
+                scheduleOutputPreview();
             } catch (err) {
                 if (gen !== refreshGen) return;
                 const reason = err && err.status
@@ -243,6 +348,7 @@ app.registerExtension({
                 }
                 if (gen !== refreshGen) return;
                 if (projectWarning || shotWarning) notify(shotWarning || projectWarning, true);
+                scheduleOutputPreview(true);
             } catch (err) {
                 if (gen !== refreshGen) return;
                 scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
@@ -263,6 +369,7 @@ app.registerExtension({
                 await refreshFolders(gen, { resetIfMissing: true });
                 if (gen !== refreshGen) return;
                 if (warning) notify(warning, true);
+                scheduleOutputPreview(true);
             } catch (err) {
                 if (gen !== refreshGen) return;
                 scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
@@ -288,6 +395,8 @@ app.registerExtension({
             const gen = ++refreshGen;
             try {
                 await refreshFolders(gen, { shot: shotWidget.value, resetIfMissing: true });
+                if (gen !== refreshGen) return;
+                scheduleOutputPreview(true);
             } catch (err) {
                 if (gen !== refreshGen) return;
                 scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
@@ -301,6 +410,9 @@ app.registerExtension({
             if (name === "projekts_root") onRootChanged(value);
             if (name === "project") onProjectChanged(value);
             if (name === "shot") onShotChanged(value);
+            if (["folder", "filename", "format", "start_frame", "frame_pad"].includes(name)) {
+                scheduleOutputPreview(true);
+            }
         };
 
         if (shotWidget) {
@@ -350,6 +462,7 @@ app.registerExtension({
                     const gen = ++refreshGen;
                     await refreshFolders(gen, { shot: created });
                     node.setDirtyCanvas(true);
+                    scheduleOutputPreview(true);
                     notify(`Created ${created}`);
                 } catch (_err) {
                     notify("+ Shot failed. Click Refresh.", true);
@@ -391,6 +504,7 @@ app.registerExtension({
                         folderWidget.value = created;
                     }
                     node.setDirtyCanvas(true);
+                    scheduleOutputPreview(true);
                     notify(`Created ${created}`);
                 } catch (_err) {
                     notify("+ Folder failed. Click Refresh.", true);
@@ -414,5 +528,16 @@ app.registerExtension({
         queueMicrotask(() => {
             if (!sawConfigure) refreshAll();
         });
+
+        if (isSaver) {
+            const origOnExecuted = node.onExecuted;
+            node.onExecuted = function(data) {
+                if (origOnExecuted) origOnExecuted.call(this, data);
+                if (data && Array.isArray(data.filepath_text) && data.filepath_text.length) {
+                    lastSavedPath = data.filepath_text[data.filepath_text.length - 1];
+                }
+                scheduleOutputPreview();
+            };
+        }
     }
 });

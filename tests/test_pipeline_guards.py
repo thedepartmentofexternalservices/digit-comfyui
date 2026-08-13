@@ -93,6 +93,23 @@ def test_image_saver_uses_typed_filename(tmp_path):
         )
 
 
+def test_image_saver_writes_the_shared_preview_path(tmp_path):
+    root = _tree(tmp_path)
+    preview = image_saver_node.next_output_path(
+        str(root), "12345_demo", "sh010", "comfy/comp",
+        "hero_wide", "png", 1001, 4,
+    )
+
+    result = image_saver_node.DigitImageSaver().save_image(
+        FakeTensorImage(), str(root), "12345_demo", "sh010",
+        "comfy", "comp", "png", "linear", 95, 1001, 4, False, "none",
+        filename="hero_wide", folder="comfy/comp",
+    )
+
+    assert result["result"][0] == preview["path"]
+    assert Path(preview["path"]).is_file()
+
+
 def test_video_saver_rejects_placeholder_shot(tmp_path):
     root = _tree(tmp_path)
     saver = video_saver_node.DigitVideoSaver()

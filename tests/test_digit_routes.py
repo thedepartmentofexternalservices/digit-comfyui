@@ -147,6 +147,85 @@ def test_folders_lists_nested_paths(tmp_path, monkeypatch):
     assert missing_status == 400
 
 
+def test_output_preview_returns_image_and_video_paths_without_writing(tmp_path, monkeypatch):
+    async def body(client, root):
+        target = (
+            tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh010"
+            / "comfy" / "comp" / "v001"
+        )
+        target.mkdir(parents=True)
+        (target / "hero_wide.1001.png").write_bytes(b"existing")
+
+        common = {
+            "root": root,
+            "project": "12345_demo",
+            "shot": "sh010",
+            "folder": "comfy/comp/v001",
+            "filename": "hero_wide",
+            "start_frame": "1001",
+            "frame_pad": "4",
+        }
+        image = await client.get(
+            "/digit/output_preview",
+            params={**common, "saver": "image", "format": "png"},
+        )
+        video = await client.get(
+            "/digit/output_preview",
+            params={**common, "saver": "video", "format": "exr"},
+        )
+        return (
+            image.status, await image.json(),
+            video.status, await video.json(),
+            sorted(path.name for path in target.iterdir()),
+        )
+
+    image_status, image, video_status, video, files = _run(tmp_path, monkeypatch, body)
+    assert image_status == 200
+    assert image["filename"] == "hero_wide.1002.png"
+    assert image["frame"] == 1002
+    assert video_status == 200
+    assert video["filename"] == "hero_wide.1001.mp4"
+    assert files == ["hero_wide.1001.png"]
+
+
+def test_output_preview_rejects_bad_destination_and_format(tmp_path, monkeypatch):
+    async def body(client, root):
+        traversal = await client.get(
+            "/digit/output_preview",
+            params={
+                "root": root,
+                "project": "12345_demo",
+                "shot": "sh010",
+                "folder": "../outside",
+            },
+        )
+        bad_format = await client.get(
+            "/digit/output_preview",
+            params={
+                "root": root,
+                "project": "12345_demo",
+                "shot": "sh010",
+                "folder": "comfy/comp",
+                "format": "gif",
+            },
+        )
+        outside = await client.get(
+            "/digit/output_preview",
+            params={
+                "root": "/etc",
+                "project": "12345_demo",
+                "shot": "sh010",
+                "folder": "comfy/comp",
+            },
+        )
+        return traversal.status, bad_format.status, outside.status
+
+    traversal, bad_format, outside = _run(tmp_path, monkeypatch, body)
+    assert traversal == 400
+    assert bad_format == 400
+    assert outside == 403
+
+
 def test_create_folder_makes_path_and_lists_it(tmp_path, monkeypatch):
     async def body(client, root):
         resp = await client.post(

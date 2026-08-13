@@ -160,6 +160,49 @@ def test_next_frame_increments_from_existing_files():
         assert next_frame == 1004
 
 
+def test_next_output_path_is_exact_and_does_not_write(tmp_path):
+    root = tmp_path / "PROJEKTS"
+    target = root / "12345_demo" / "shots" / "sh010" / "comfy" / "comp" / "v001"
+    target.mkdir(parents=True)
+    (target / "hero_wide.1001.png").write_bytes(b"existing")
+
+    preview = projekts_utils.next_output_path(
+        str(root), "12345_demo", "sh010", "comfy/comp/v001",
+        "hero_wide", "png", 1001, 4,
+    )
+
+    assert preview == {
+        "path": str(target / "hero_wide.1002.png"),
+        "directory": str(target),
+        "filename": "hero_wide.1002.png",
+        "frame": 1002,
+        "stem": "hero_wide",
+        "extension": "png",
+    }
+    assert sorted(path.name for path in target.iterdir()) == ["hero_wide.1001.png"]
+
+
+def test_next_output_path_uses_fallback_name_and_validates_numbers(tmp_path):
+    root = tmp_path / "PROJEKTS"
+    target = root / "12345_demo" / "shots" / "sh010" / "plates"
+    target.mkdir(parents=True)
+
+    preview = projekts_utils.next_output_path(
+        str(root), "12345_demo", "sh010", "plates", "", ".mp4", "7", "6",
+    )
+    assert preview["path"] == str(target / "12345_sh010_plates.000007.mp4")
+    assert preview["frame"] == 7
+
+    with pytest.raises(ValueError, match="frame_pad"):
+        projekts_utils.next_output_path(
+            str(root), "12345_demo", "sh010", "plates", "", "png", 1001, 9,
+        )
+    with pytest.raises(ValueError, match="start_frame"):
+        projekts_utils.next_output_path(
+            str(root), "12345_demo", "sh010", "plates", "", "png", -1, 4,
+        )
+
+
 def test_is_within_roots_rejects_escape():
     with tempfile.TemporaryDirectory() as root:
         inside = os.path.join(root, "12345_demo", "shots", "shot_a")

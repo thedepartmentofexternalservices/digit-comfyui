@@ -18,16 +18,13 @@ from .projekts_utils import (
     create_folder_dir,
     create_shot_dir,
     effective_folder,
-    file_stem,
-    folder_task_name,
     get_available_projekts_roots,
     health_payload,
     is_placeholder,
     is_storage_unavailable,
     is_within_roots,
-    next_frame,
+    next_output_path,
     parse_folder,
-    resolve_folder_dir,
     scan_child_folders,
     scan_projects,
     scan_shot_folders,
@@ -147,6 +144,44 @@ async def get_folders(request):
     if not project or not shot:
         return web.json_response([""], status=400)
     return _json_scan(scan_shot_folders(root, project, shot))
+
+
+@PromptServer.instance.routes.get("/digit/output_preview")
+async def get_output_preview(request):
+    root = _constrained_root(request.rel_url.query.get("root", ""))
+    if not root:
+        return web.json_response({"error": "root not allowed"}, status=403)
+
+    saver = request.rel_url.query.get("saver", "image")
+    if saver == "video":
+        extension = "mp4"
+    elif saver == "image":
+        extension = request.rel_url.query.get("format", "png").lower()
+        if extension not in {"png", "jpg", "exr"}:
+            return web.json_response({"error": f"unsupported image format: {extension}"}, status=400)
+    else:
+        return web.json_response({"error": f"unknown saver: {saver}"}, status=400)
+
+    try:
+        preview = next_output_path(
+            root,
+            request.rel_url.query.get("project", ""),
+            request.rel_url.query.get("shot", ""),
+            request.rel_url.query.get("folder", "comfy/comp"),
+            request.rel_url.query.get("filename", ""),
+            extension,
+            request.rel_url.query.get("start_frame", 1001),
+            request.rel_url.query.get("frame_pad", 4),
+        )
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+    except OSError as exc:
+        return web.json_response({"error": str(exc)}, status=503)
+
+    return web.json_response({
+        key: preview[key]
+        for key in ("path", "directory", "filename", "frame")
+    })
 
 
 @PromptServer.instance.routes.post("/digit/create_folder")
@@ -279,11 +314,15 @@ class DigitImageSaver:
                    save_workflow="none", filename="", folder="",
                    prompt=None, extra_pnginfo=None):
         folder_path = effective_folder(folder, subfolder, task)
-        stem = file_stem(project, shot, folder_task_name(folder_path), filename)
-        target_dir = resolve_folder_dir(projekts_root, project, shot, folder_path)
+        output = next_output_path(
+            projekts_root, project, shot, folder_path, filename,
+            format, start_frame, frame_pad,
+        )
+        stem = output["stem"]
+        target_dir = output["directory"]
         os.makedirs(target_dir, exist_ok=True)
 
-        frame_num = next_frame(target_dir, stem, format, start_frame, frame_pad)
+        frame_num = output["frame"]
 
         metadata = {}
         if prompt is not None:
