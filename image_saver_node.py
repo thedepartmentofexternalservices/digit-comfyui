@@ -175,8 +175,7 @@ async def create_folder(request):
     if is_storage_unavailable(folders):
         return web.json_response({"error": "storage unavailable", "folders": folders}, status=503)
     cleaned = [name for name in folders if name and not is_placeholder(name)]
-    subfolder, task = parse_folder(folder)
-    normalized = f"{subfolder}/{task}" if task else subfolder
+    normalized = "/".join(parse_folder(folder))
     return web.json_response({
         "ok": True,
         "folder": normalized,

@@ -143,7 +143,7 @@ def test_folders_lists_nested_paths(tmp_path, monkeypatch):
 
     status, folders, missing_status = _run(tmp_path, monkeypatch, body)
     assert status == 200
-    assert folders == ["comfy/comp", "plates"]
+    assert folders == ["comfy", "comfy/comp", "plates"]
     assert missing_status == 400
 
 
@@ -155,7 +155,7 @@ def test_create_folder_makes_path_and_lists_it(tmp_path, monkeypatch):
                 "root": root,
                 "project": "12345_demo",
                 "shot": "sh010",
-                "folder": "comfy/paint",
+                "folder": "comfy/comp/v001",
             },
         )
         return resp.status, await resp.json()
@@ -163,9 +163,11 @@ def test_create_folder_makes_path_and_lists_it(tmp_path, monkeypatch):
     status, payload = _run(tmp_path, monkeypatch, body)
     assert status == 200
     assert payload["ok"] is True
-    assert payload["folder"] == "comfy/paint"
-    assert "comfy/paint" in payload["folders"]
-    assert (tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh010" / "comfy" / "paint").is_dir()
+    assert payload["folder"] == "comfy/comp/v001"
+    assert "comfy/comp/v001" in payload["folders"]
+    assert (
+        tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh010" / "comfy" / "comp" / "v001"
+    ).is_dir()
 
 
 def test_create_shot_makes_folder_and_lists_it(tmp_path, monkeypatch):

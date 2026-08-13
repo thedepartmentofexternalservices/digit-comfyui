@@ -481,7 +481,7 @@ Save images to a VFX-pipeline folder structure with auto-incrementing frame numb
 | projekts_root | COMBO | (auto) | PROJEKTS volume root. Auto-detects available mount points. |
 | project | COMBO | (auto) | Project folder (dynamic dropdown, scans for `#####_` prefix pattern). |
 | shot | COMBO | (auto) | Shot folder. Pick from the list, or click **+ Shot** to make a new one. |
-| folder | COMBO | comfy/comp | Existing folder under the shot. **+ Folder** types a new path (`comfy/paint` or `plates`). |
+| folder | COMBO | comfy/comp | Existing folder under the shot. **+ Folder** types a new path (`comfy/paint`, `comfy/comp/v001`, or `plates`). |
 | filename | STRING | — | What to name the file. Leave empty for `PREFIX_SHOT_TASK`. Frame number and extension are added. |
 | format | COMBO | png | Output format: PNG, JPEG, or EXR. |
 | tonemap | COMBO | linear | EXR tone mapping: linear, sRGB, or Reinhard. Only applies to EXR format. |
@@ -493,13 +493,13 @@ Save images to a VFX-pipeline folder structure with auto-incrementing frame numb
 
 **Output path:** `PROJEKTS/project/shots/shot/folder/NAME.FRAME.EXT`
 
-**Example:** `~/PROJEKTS/10001_my_project/shots/sh010/comfy/comp/hero_wide.1001.png` (or `10001_sh010_comp.1001.png` if filename is empty). A slash in folder is `subfolder/task`. No slash is one level (`plates`).
+**Example:** `~/PROJEKTS/10001_my_project/shots/sh010/comfy/comp/hero_wide.1001.png` (or `10001_sh010_comp.1001.png` if filename is empty). Folder can be one level (`plates`) or deeper (`comfy/comp/v001`).
 
 **EXR support:** Full 32-bit float EXR with OpenCV. Supports RGBA with inverted alpha (VFX convention). Tone mapping options let you convert from sRGB gamma space to linear on save.
 
 **Batch support:** If a batched IMAGE tensor is connected (e.g. from a batch generation), each image in the batch is saved as a sequential frame.
 
-**Failure modes:** A shot or project still set to `(no shots found)` raises instead of creating a junk folder. Folder paths with `..` or more than two levels are rejected. Changing project reloads that project's shots. Changing shot reloads folders. **+ Shot** and **+ Folder** ask for a name and mkdir it.
+**Failure modes:** A shot or project still set to `(no shots found)` raises instead of creating a junk folder. Folder paths with `..` or more than 8 levels are rejected. Changing project reloads that project's shots. Changing shot reloads folders. **+ Shot** and **+ Folder** ask for a name and mkdir it.
 
 ---
 
