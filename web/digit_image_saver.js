@@ -141,8 +141,12 @@ app.registerExtension({
             if (outputPreviewWidget.inputEl) {
                 outputPreviewWidget.inputEl.readOnly = true;
                 outputPreviewWidget.inputEl.rows = 2;
+                outputPreviewWidget.inputEl.wrap = "off";
                 outputPreviewWidget.inputEl.style.fontFamily = "monospace";
                 outputPreviewWidget.inputEl.style.fontSize = "11px";
+                outputPreviewWidget.inputEl.style.resize = "none";
+                outputPreviewWidget.inputEl.style.whiteSpace = "pre";
+                outputPreviewWidget.inputEl.style.overflowX = "auto";
             }
             const previewIndex = node.widgets.indexOf(outputPreviewWidget);
             const filenameIndex = node.widgets.indexOf(filenameWidget);
@@ -189,9 +193,8 @@ app.registerExtension({
             return "";
         }
 
-        async function refreshOutputPreview() {
+        async function refreshOutputPreview(gen) {
             if (!outputPreviewWidget) return;
-            const gen = ++previewGen;
             const root = rootWidget.value;
             const project = projectWidget.value;
             const shot = shotWidget && shotWidget.value;
@@ -254,7 +257,8 @@ app.registerExtension({
             if (!outputPreviewWidget) return;
             if (clearSaved) lastSavedPath = "";
             if (previewTimer) clearTimeout(previewTimer);
-            previewTimer = setTimeout(refreshOutputPreview, 250);
+            const gen = ++previewGen;
+            previewTimer = setTimeout(() => refreshOutputPreview(gen), 300);
         }
 
         function clearRetry() {
