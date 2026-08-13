@@ -262,12 +262,13 @@ app.registerExtension({
         }
 
         if (filenameWidget && outputPreviewWidget) {
-            if (filenameWidget.inputEl) {
-                filenameWidget.inputEl.addEventListener("input", event => {
-                    filenameWidget.value = event.target.value;
-                    scheduleOutputPreview(true);
-                });
-            }
+            const origFilenameCallback = filenameWidget.callback;
+            filenameWidget.callback = function() {
+                if (origFilenameCallback) {
+                    origFilenameCallback.apply(this, arguments);
+                }
+                scheduleOutputPreview(true);
+            };
         }
 
         function clearRetry() {
