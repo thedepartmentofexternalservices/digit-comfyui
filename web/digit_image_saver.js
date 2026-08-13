@@ -258,7 +258,26 @@ app.registerExtension({
             if (clearSaved) lastSavedPath = "";
             if (previewTimer) clearTimeout(previewTimer);
             const gen = ++previewGen;
-            previewTimer = setTimeout(() => refreshOutputPreview(gen), 300);
+            previewTimer = setTimeout(() => refreshOutputPreview(gen), 150);
+        }
+
+        if (filenameWidget && outputPreviewWidget) {
+            const origFilenameCallback = filenameWidget.callback;
+            filenameWidget.callback = function(value) {
+                if (origFilenameCallback) {
+                    origFilenameCallback.call(this, value);
+                }
+                if (value !== undefined) filenameWidget.value = value;
+                setOutputPreview("Updating output path...");
+                scheduleOutputPreview(true);
+            };
+            if (filenameWidget.inputEl) {
+                filenameWidget.inputEl.addEventListener("input", event => {
+                    filenameWidget.value = event.target.value;
+                    setOutputPreview("Updating output path...");
+                    scheduleOutputPreview(true);
+                });
+            }
         }
 
         function clearRetry() {
