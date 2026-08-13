@@ -34,9 +34,9 @@ class DigitUberSaver:
                     ),
                 }),
                 "format": (["png", "jpg", "exr"],),
-                "tonemap": (["linear", "sRGB", "Reinhard"],),
+                "tonemap": (["sRGB", "linear", "Reinhard"],),
                 "quality": ("INT", {
-                    "default": 95, "min": 1, "max": 100, "step": 1,
+                    "default": 100, "min": 1, "max": 100, "step": 1,
                 }),
                 "start_frame": ("INT", {
                     "default": 1001, "min": 0, "max": 99999999, "step": 1,
