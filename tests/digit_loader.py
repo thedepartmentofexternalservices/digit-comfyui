@@ -17,7 +17,28 @@ def _ensure_folder_paths_stub() -> None:
         return
     folder_paths = types.ModuleType("folder_paths")
     folder_paths.get_temp_directory = lambda: tempfile.gettempdir()
+    folder_paths.get_input_directory = lambda: tempfile.gettempdir()
+    folder_paths.get_annotated_filepath = lambda name: name
+    folder_paths.filter_files_content_types = lambda files, types_: files
     sys.modules["folder_paths"] = folder_paths
+
+
+def _ensure_server_stub() -> None:
+    if "server" in sys.modules:
+        return
+    from aiohttp import web
+
+    server = types.ModuleType("server")
+
+    class FakePromptServer:
+        instance = None
+
+        def __init__(self):
+            self.routes = web.RouteTableDef()
+
+    FakePromptServer.instance = FakePromptServer()
+    server.PromptServer = FakePromptServer
+    sys.modules["server"] = server
 
 
 def _ensure_comfy_stub() -> None:
@@ -31,10 +52,45 @@ def _ensure_comfy_stub() -> None:
     sys.modules["comfy.utils"] = utils
 
 
+def _ensure_torch_stub() -> None:
+    if "torch" in sys.modules:
+        return
+    try:
+        import torch  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    import numpy as np
+
+    torch = types.ModuleType("torch")
+
+    class _Tensor:
+        def __init__(self, array):
+            self._array = array
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return self._array
+
+        def __getitem__(self, idx):
+            return _Tensor(self._array[idx])
+
+        def unsqueeze(self, _dim):
+            return _Tensor(np.expand_dims(self._array, 0))
+
+    torch.from_numpy = lambda array: _Tensor(array)
+    sys.modules["torch"] = torch
+
+
 def load_digit_module(module_name: str):
     """Import a repo-root module as ``comfyui_digit.<module_name>``."""
     _ensure_folder_paths_stub()
     _ensure_comfy_stub()
+    _ensure_server_stub()
+    _ensure_torch_stub()
 
     pkg = sys.modules.get(PKG_NAME)
     if pkg is None:

@@ -2,6 +2,7 @@
 
 import os
 import re
+import time
 
 # Override with DIGIT_PROJEKTS_ROOTS env var (colon-separated paths).
 # Falls back to common mount points, then home directory.
@@ -16,6 +17,18 @@ _CANDIDATE_ROOTS = [
     "/Volumes/saint/goose/PROJEKTS",
     "/mnt/lucid/PROJEKTS",
 ]
+
+PLACEHOLDER_RE = re.compile(r"^\(no .+ found\)$")
+SENTINEL_NO_PROJECTS = "(no projects found)"
+SENTINEL_NO_SHOTS = "(no shots found)"
+SENTINEL_STORAGE_UNAVAILABLE = "(storage unavailable)"
+
+_LISTDIR_RETRIES = 3
+_LISTDIR_DELAY = 0.15
+
+
+class StorageUnavailableError(OSError):
+    """Raised when a PROJEKTS path cannot be listed after retries."""
 
 
 def get_projekts_roots():
@@ -41,6 +54,48 @@ PROJECT_RE = re.compile(r"^\d{5}_")
 FRAME_RE = re.compile(r"\.(\d+)\.[^.]+$")
 
 
+def is_placeholder(value):
+    """True for UI sentinels like ``(no shots found)`` that must never be saved."""
+    return bool(value) and PLACEHOLDER_RE.match(str(value)) is not None
+
+
+def is_storage_unavailable(items):
+    """True when a scan result is the storage-error sentinel."""
+    return items == [SENTINEL_STORAGE_UNAVAILABLE]
+
+
+def combo_choices(items):
+    """Dropdown options for INPUT_TYPES. Never bake UI sentinels into /object_info."""
+    if not items or is_storage_unavailable(items):
+        return [""]
+    cleaned = [name for name in items if not is_placeholder(name)]
+    return cleaned if cleaned else [""]
+
+
+def validate_segment(name, value):
+    """Reject empty, placeholder, or path-escaping pipeline segments.
+
+    Raises ValueError. Call before joining segments into a filesystem path.
+    """
+    if value is None:
+        raise ValueError(f"{name} is required")
+    text = str(value)
+    if text.strip() == "":
+        raise ValueError(f"{name} is required")
+    if is_placeholder(text) or text == SENTINEL_STORAGE_UNAVAILABLE:
+        raise ValueError(
+            f"Invalid {name} {text!r} — pipeline list was empty or unavailable. "
+            "Refresh PROJEKTS and re-select a real project/shot."
+        )
+    if os.path.isabs(text):
+        raise ValueError(f"{name} must be a relative folder name, not an absolute path")
+    if any(sep in text for sep in ("/", "\\", "\x00")):
+        raise ValueError(f"{name} must not contain path separators: {text!r}")
+    if text in (".", ".."):
+        raise ValueError(f"{name} must not be '.' or '..'")
+    return text
+
+
 def is_within_roots(path, roots=None):
     """Return True if `path` resolves to a location inside one of the PROJEKTS roots.
 
@@ -63,27 +118,94 @@ def is_within_roots(path, roots=None):
     return False
 
 
+def listdir_resilient(path, retries=_LISTDIR_RETRIES, delay=_LISTDIR_DELAY, sleeper=time.sleep):
+    """List a directory, retrying transient OSError (FUSE hiccups).
+
+    Raises StorageUnavailableError after exhausting retries. PermissionError on
+    a single unreadable child is the caller's problem; this only wraps listdir
+    of `path` itself.
+    """
+    last_error = None
+    attempts = max(1, retries)
+    for attempt in range(attempts):
+        try:
+            return os.listdir(path)
+        except OSError as exc:
+            last_error = exc
+            if attempt < attempts - 1:
+                sleeper(delay * (2 ** attempt))
+    raise StorageUnavailableError(f"Cannot list {path}: {last_error}") from last_error
+
+
+def _is_dir_safe(path):
+    """os.path.isdir that treats OSError as False so one bad child cannot abort a scan."""
+    try:
+        return os.path.isdir(path)
+    except OSError:
+        return False
+
+
 def scan_projects(projekts_root):
     """Return sorted list of project folders matching 5-digit prefix pattern."""
-    if not os.path.isdir(projekts_root):
-        return ["(no projects found)"]
-    folders = [
-        d for d in sorted(os.listdir(projekts_root))
-        if os.path.isdir(os.path.join(projekts_root, d)) and PROJECT_RE.match(d)
-    ]
-    return folders if folders else ["(no projects found)"]
+    if not projekts_root or not _is_dir_safe(projekts_root):
+        return [SENTINEL_NO_PROJECTS]
+    try:
+        names = listdir_resilient(projekts_root)
+    except StorageUnavailableError:
+        return [SENTINEL_STORAGE_UNAVAILABLE]
+    folders = []
+    for name in sorted(names):
+        if is_placeholder(name):
+            continue
+        full = os.path.join(projekts_root, name)
+        if _is_dir_safe(full) and PROJECT_RE.match(name):
+            folders.append(name)
+    return folders if folders else [SENTINEL_NO_PROJECTS]
 
 
 def scan_shots(projekts_root, project):
     """Return sorted list of shot folders inside <project>/shots/."""
+    if not project or is_placeholder(project) or project == SENTINEL_STORAGE_UNAVAILABLE:
+        return [SENTINEL_NO_SHOTS]
+    try:
+        validate_segment("project", project)
+    except ValueError:
+        return [SENTINEL_NO_SHOTS]
     shots_dir = os.path.join(projekts_root, project, "shots")
-    if not os.path.isdir(shots_dir):
-        return ["(no shots found)"]
-    folders = sorted(
-        d for d in os.listdir(shots_dir)
-        if os.path.isdir(os.path.join(shots_dir, d))
-    )
-    return folders if folders else ["(no shots found)"]
+    if not _is_dir_safe(shots_dir):
+        return [SENTINEL_NO_SHOTS]
+    try:
+        names = listdir_resilient(shots_dir)
+    except StorageUnavailableError:
+        return [SENTINEL_STORAGE_UNAVAILABLE]
+    folders = []
+    for name in sorted(names):
+        if is_placeholder(name):
+            continue
+        full = os.path.join(shots_dir, name)
+        if _is_dir_safe(full):
+            folders.append(name)
+    return folders if folders else [SENTINEL_NO_SHOTS]
+
+
+def resolve_pipeline_dir(projekts_root, project, shot, subfolder, task):
+    """Build <root>/<project>/shots/<shot>/<subfolder>/<task> after validating segments.
+
+    Raises ValueError on placeholder values, path separators, or a join that
+    escapes `projekts_root`. Call this before os.makedirs.
+    """
+    if not projekts_root:
+        raise ValueError("projekts_root is required")
+    validate_segment("project", project)
+    validate_segment("shot", shot)
+    validate_segment("subfolder", subfolder)
+    validate_segment("task", task)
+    target_dir = os.path.join(projekts_root, project, "shots", shot, subfolder, task)
+    if not is_within_roots(target_dir, roots=[projekts_root]):
+        raise ValueError(
+            f"Pipeline path escapes PROJEKTS root {projekts_root!r}: {target_dir}"
+        )
+    return target_dir
 
 
 def next_frame(target_dir, prefix, shot, task, ext, start_frame, frame_pad):
@@ -92,8 +214,12 @@ def next_frame(target_dir, prefix, shot, task, ext, start_frame, frame_pad):
         rf"^{re.escape(prefix)}_{re.escape(shot)}_{re.escape(task)}\.(\d+)\.{re.escape(ext)}$"
     )
     max_frame = start_frame - 1
-    if os.path.isdir(target_dir):
-        for f in os.listdir(target_dir):
+    if _is_dir_safe(target_dir):
+        try:
+            names = listdir_resilient(target_dir)
+        except StorageUnavailableError:
+            names = []
+        for f in names:
             m = pat.match(f)
             if m:
                 max_frame = max(max_frame, int(m.group(1)))

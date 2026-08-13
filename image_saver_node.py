@@ -12,7 +12,17 @@ from PIL import Image, PngImagePlugin
 from aiohttp import web
 from server import PromptServer
 
-from .projekts_utils import get_available_projekts_roots, PROJECT_RE, FRAME_RE, scan_projects, scan_shots, next_frame
+from .projekts_utils import (
+    SENTINEL_NO_SHOTS,
+    combo_choices,
+    get_available_projekts_roots,
+    is_storage_unavailable,
+    is_within_roots,
+    next_frame,
+    resolve_pipeline_dir,
+    scan_projects,
+    scan_shots,
+)
 
 
 def sRGBtoLinear(npArray):
@@ -22,6 +32,23 @@ def sRGBtoLinear(npArray):
     return result.astype(np.float32)
 
 
+def _json_scan(items):
+    """Return a list payload; 503 when the scan hit a storage error."""
+    if is_storage_unavailable(items):
+        return web.json_response(items, status=503)
+    return web.json_response(items)
+
+
+def _constrained_root(raw_root):
+    """Return root if it is inside configured PROJEKTS roots, else empty string."""
+    if not raw_root:
+        roots = get_available_projekts_roots()
+        return roots[0] if roots else ""
+    if is_within_roots(raw_root):
+        return raw_root
+    return ""
+
+
 @PromptServer.instance.routes.get("/digit/roots")
 async def get_roots(request):
     return web.json_response(get_available_projekts_roots())
@@ -29,20 +56,21 @@ async def get_roots(request):
 
 @PromptServer.instance.routes.get("/digit/projects")
 async def get_projects(request):
-    root = request.rel_url.query.get("root", "")
+    root = _constrained_root(request.rel_url.query.get("root", ""))
     if not root:
-        roots = get_available_projekts_roots()
-        root = roots[0] if roots else ""
-    projects = scan_projects(root)
-    return web.json_response(projects)
+        return web.json_response([], status=403)
+    return _json_scan(scan_projects(root))
 
 
 @PromptServer.instance.routes.get("/digit/shots")
 async def get_shots(request):
-    root = request.rel_url.query.get("root", "")
+    root = _constrained_root(request.rel_url.query.get("root", ""))
+    if not root:
+        return web.json_response([], status=403)
     project = request.rel_url.query.get("project", "")
-    shots = scan_shots(root, project)
-    return web.json_response(shots)
+    if not project:
+        return web.json_response([SENTINEL_NO_SHOTS], status=400)
+    return _json_scan(scan_shots(root, project))
 
 
 class DigitImageSaver:
@@ -54,12 +82,10 @@ class DigitImageSaver:
 
     @classmethod
     def INPUT_TYPES(cls):
-        available_roots = get_available_projekts_roots()
-
+        available_roots = get_available_projekts_roots() or [""]
         first_root = available_roots[0]
-        projects = scan_projects(first_root)
-        first_project = projects[0] if projects else ""
-        shots = scan_shots(first_root, first_project)
+        projects = combo_choices(scan_projects(first_root)) if first_root else [""]
+        shots = [""]
 
         return {
             "required": {
@@ -96,7 +122,7 @@ class DigitImageSaver:
                    format, tonemap, quality, start_frame, frame_pad, show_preview,
                    save_workflow, prompt=None, extra_pnginfo=None):
         prefix = project[:5]
-        target_dir = os.path.join(projekts_root, project, "shots", shot, subfolder, task)
+        target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
         os.makedirs(target_dir, exist_ok=True)
 
         frame_num = next_frame(target_dir, prefix, shot, task, format, start_frame, frame_pad)
