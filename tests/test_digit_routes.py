@@ -99,6 +99,33 @@ def test_health_reports_reachable_root(tmp_path, monkeypatch):
     assert payload["roots"][0]["project_count"] == 1
 
 
+def test_subfolders_and_tasks_list_children(tmp_path, monkeypatch):
+    async def body(client, root):
+        shot_dir = tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh010"
+        (shot_dir / "comfy" / "comp").mkdir(parents=True)
+        (shot_dir / "plates").mkdir()
+        sub = await client.get(
+            "/digit/subfolders",
+            params={"root": root, "project": "12345_demo", "shot": "sh010"},
+        )
+        tasks = await client.get(
+            "/digit/tasks",
+            params={"root": root, "project": "12345_demo", "shot": "sh010", "subfolder": "comfy"},
+        )
+        missing = await client.get(
+            "/digit/subfolders",
+            params={"root": root, "project": "12345_demo", "shot": ""},
+        )
+        return sub.status, await sub.json(), tasks.status, await tasks.json(), missing.status
+
+    sub_status, subfolders, task_status, tasks, missing_status = _run(tmp_path, monkeypatch, body)
+    assert sub_status == 200
+    assert subfolders == ["comfy", "plates"]
+    assert task_status == 200
+    assert tasks == ["comp"]
+    assert missing_status == 400
+
+
 def test_health_is_503_when_root_unlistable(tmp_path, monkeypatch):
     async def body(client, _root):
         def boom(_path):

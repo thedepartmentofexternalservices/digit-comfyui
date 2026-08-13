@@ -481,8 +481,8 @@ Save images to a VFX-pipeline folder structure with auto-incrementing frame numb
 | projekts_root | COMBO | (auto) | PROJEKTS volume root. Auto-detects available mount points. |
 | project | COMBO | (auto) | Project folder (dynamic dropdown, scans for `#####_` prefix pattern). |
 | shot | COMBO | (auto) | Shot folder (dynamic dropdown, scans `project/shots/`). |
-| subfolder | STRING | comfy | Subfolder within the shot (e.g. "comfy", "renders", "plates"). |
-| task | STRING | comp | Task name (e.g. "comp", "paint", "roto"). |
+| subfolder | STRING | comfy | Subfolder within the shot (e.g. "comfy", "renders", "plates"). Type a name, or pick from the live list. |
+| task | STRING | comp | Task name (e.g. "comp", "paint", "roto"). Type a name, or pick from the live list. |
 | format | COMBO | png | Output format: PNG, JPEG, or EXR. |
 | tonemap | COMBO | linear | EXR tone mapping: linear, sRGB, or Reinhard. Only applies to EXR format. |
 | quality | INT | 95 | JPEG quality (1–100). Only applies to JPEG format. |
@@ -498,6 +498,8 @@ Save images to a VFX-pipeline folder structure with auto-incrementing frame numb
 **EXR support:** Full 32-bit float EXR with OpenCV. Supports RGBA with inverted alpha (VFX convention). Tone mapping options let you convert from sRGB gamma space to linear on save.
 
 **Batch support:** If a batched IMAGE tensor is connected (e.g. from a batch generation), each image in the batch is saved as a sequential frame.
+
+**Failure modes:** A shot or project still set to `(no shots found)` raises instead of creating a junk folder. Path segments with `/` or `..` are rejected. Red shot fields mean the saved value is not in the current list — click **Refresh PROJEKTS**. The status line shows `PROJEKTS OK — N projects` or a storage error.
 
 ---
 
@@ -524,6 +526,8 @@ Save videos to the same VFX-pipeline folder structure as the Image Saver. Accept
 
 **Batch support:** Connect the `video_paths` output from the Veo node and all generated videos (up to 4) are saved with sequential frame numbers.
 
+**Failure modes:** Same pipeline guards as Image Saver. Placeholder shot names and path traversal raise. Click **Refresh PROJEKTS** if the shot field is red.
+
 ---
 
 ### DIGIT Image Loader
@@ -539,7 +543,11 @@ Load the latest rendered frame from a shot/task directory. Pairs with the Image 
 | shot | COMBO | (auto) | Shot folder (dynamic dropdown). |
 | subfolder | STRING | comfy | Subfolder within the shot. |
 | task | STRING | comp | Task name. |
-| format | COMBO | png | File format to scan for: PNG, JPEG, or EXR. |
+| format | COMBO | png | File format to scan for: png, jpg, exr, tif, tiff, webp. |
+| frame_mode | COMBO | latest | `latest` loads the highest frame number. `pinned` loads the exact `frame`. |
+| frame | INT | 1001 | Used when `frame_mode` is `pinned`. |
+| on_missing | COMBO | error | `error` raises when no frame is found. `blank` returns a 1x1 black image. |
+| browse_path | STRING | — | Absolute path inside a PROJEKTS root. Highest priority. |
 | filepath | STRING | — | Optional direct filepath input. If connected from a Saver node, loads that specific file instead of scanning. |
 
 **Outputs:**
@@ -550,7 +558,9 @@ Load the latest rendered frame from a shot/task directory. Pairs with the Image 
 | filepath | STRING | Full path to the loaded file. |
 | frame | INT | Frame number of the loaded file. |
 
-**Smart loading:** Automatically finds the highest-numbered frame in the target directory. If a `filepath` is connected (e.g. from the Image Saver's output), it loads that exact file instead.
+**Load order:** `browse_path` (must stay inside PROJEKTS) → upload → connected `filepath` → pipeline scan.
+
+**Smart loading:** `latest` finds the highest-numbered frame in the target directory. `pinned` loads one frame number. If a `filepath` is connected (e.g. from the Image Saver's output), it loads that exact file instead.
 
 **EXR support:** Full 32-bit float EXR loading with OpenCV. BGRA to RGBA conversion and alpha un-inversion handled automatically.
 

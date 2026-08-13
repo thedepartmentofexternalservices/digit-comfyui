@@ -217,6 +217,39 @@ def scan_shots(projekts_root, project):
     return folders if folders else [SENTINEL_NO_SHOTS]
 
 
+def scan_child_folders(projekts_root, project, shot, subfolder=None):
+    """List immediate child folders under a shot, or under shot/subfolder.
+
+    Used by /digit/subfolders and /digit/tasks. Returns ``[""]`` when the
+    parent path is missing or a segment is invalid; storage errors use the
+    storage sentinel.
+    """
+    try:
+        validate_segment("project", project)
+        validate_segment("shot", shot)
+        if subfolder is not None:
+            validate_segment("subfolder", subfolder)
+    except ValueError:
+        return [""]
+    if subfolder is None:
+        path = os.path.join(projekts_root, project, "shots", shot)
+    else:
+        path = os.path.join(projekts_root, project, "shots", shot, subfolder)
+    if not _is_dir_safe(path):
+        return [""]
+    try:
+        names = listdir_resilient(path)
+    except StorageUnavailableError:
+        return [SENTINEL_STORAGE_UNAVAILABLE]
+    folders = []
+    for name in sorted(names):
+        if is_placeholder(name):
+            continue
+        if _is_dir_safe(os.path.join(path, name)):
+            folders.append(name)
+    return folders if folders else [""]
+
+
 def resolve_pipeline_dir(projekts_root, project, shot, subfolder, task):
     """Build <root>/<project>/shots/<shot>/<subfolder>/<task> after validating segments.
 

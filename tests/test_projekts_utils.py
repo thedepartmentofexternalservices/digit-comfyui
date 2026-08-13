@@ -170,6 +170,17 @@ def test_health_payload_reachable_root(tmp_path, monkeypatch):
     assert payload["roots"][0]["project_count"] == 1
 
 
+def test_scan_child_folders_lists_subfolders_and_tasks():
+    with tempfile.TemporaryDirectory() as root:
+        shot = os.path.join(root, "12345_demo", "shots", "sh010")
+        os.makedirs(os.path.join(shot, "comfy", "comp"))
+        os.makedirs(os.path.join(shot, "comfy", "paint"))
+        os.makedirs(os.path.join(shot, "plates"))
+        assert projekts_utils.scan_child_folders(root, "12345_demo", "sh010") == ["comfy", "plates"]
+        assert projekts_utils.scan_child_folders(root, "12345_demo", "sh010", "comfy") == ["comp", "paint"]
+        assert projekts_utils.scan_child_folders(root, "12345_demo", "(no shots found)") == [""]
+
+
 def test_combo_choices_strips_sentinels():
     assert projekts_utils.combo_choices(["(no shots found)"]) == [""]
     assert projekts_utils.combo_choices(["(storage unavailable)"]) == [""]

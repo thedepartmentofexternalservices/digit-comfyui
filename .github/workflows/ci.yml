@@ -25,10 +25,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest>=8.0 pytest-mock>=3.12 ruff>=0.6 aiohttp>=3.9 numpy
+          pip install pytest>=8.0 pytest-mock>=3.12 pytest-cov>=5.0 ruff>=0.6 aiohttp>=3.9 numpy
 
       - name: Ruff
-        run: python -m ruff check tests/
+        run: python -m ruff check tests/ projekts_utils.py image_saver_node.py image_loader_node.py video_saver_node.py
 
       - name: Pytest
-        run: python -m pytest
+        run: python -m pytest --cov --cov-report=term-missing
