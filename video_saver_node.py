@@ -7,7 +7,13 @@ import shutil
 
 import folder_paths
 
-from .projekts_utils import get_available_projekts_roots, scan_projects, scan_shots, next_frame
+from .projekts_utils import (
+    get_available_projekts_roots,
+    next_frame,
+    resolve_pipeline_dir,
+    scan_projects,
+    scan_shots,
+)
 
 logger = logging.getLogger("DigitVideoSaver")
 
@@ -180,7 +186,7 @@ class DigitVideoSaver:
                    prompt=None, extra_pnginfo=None, unique_id=None):
         prefix = project[:5]
         ext = "mp4"
-        target_dir = os.path.join(projekts_root, project, "shots", shot, subfolder, task)
+        target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
         os.makedirs(target_dir, exist_ok=True)
 
         frame_num = next_frame(target_dir, prefix, shot, task, ext, start_frame, frame_pad)
