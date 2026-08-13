@@ -22,6 +22,7 @@ class DigitUberSaver:
 
         return {
             "required": {
+                "media": ("IMAGE,VIDEO,VIDEO_PATHS",),
                 "projekts_root": (available_roots,),
                 "project": (projects,),
                 "shot": ([""],),
@@ -47,11 +48,6 @@ class DigitUberSaver:
                 "show_preview": ("BOOLEAN", {"default": True}),
                 "save_workflow": (["ui", "api", "ui + api", "none"],),
             },
-            "optional": {
-                "image": ("IMAGE",),
-                "video": ("VIDEO",),
-                "video_paths": ("VIDEO_PATHS",),
-            },
             "hidden": {
                 "prompt": "PROMPT",
                 "extra_pnginfo": "EXTRA_PNGINFO",
@@ -67,27 +63,28 @@ class DigitUberSaver:
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
-    def save(self, projekts_root, project, shot, folder, name,
+    def save(self, media, projekts_root, project, shot, folder, name,
              format, tonemap, quality, start_frame, frame_pad,
-             show_preview, save_workflow, image=None, video=None,
-             video_paths=None, prompt=None, extra_pnginfo=None,
-             unique_id=None):
-        has_image = image is not None
-        has_video = video is not None or video_paths is not None
+             show_preview, save_workflow, prompt=None,
+             extra_pnginfo=None, unique_id=None):
+        if media is None:
+            raise ValueError("DIGIT Uber Saver needs an image or video input.")
 
-        if has_image and has_video:
-            raise ValueError(
-                "DIGIT Uber Saver accepts one media type at a time. "
-                "Disconnect either image or video."
+        is_video_paths = (
+            isinstance(media, (list, tuple))
+            and all(isinstance(path, str) for path in media)
+        )
+        is_video = (
+            not is_video_paths
+            and (
+                callable(getattr(media, "get_stream_source", None))
+                or callable(getattr(media, "save_to", None))
             )
-        if not has_image and not has_video:
-            raise ValueError(
-                "DIGIT Uber Saver needs an image or video input."
-            )
+        )
 
-        if has_image:
+        if not is_video_paths and not is_video:
             return DigitImageSaver().save_image(
-                image=image,
+                image=media,
                 projekts_root=projekts_root,
                 project=project,
                 shot=shot,
@@ -113,8 +110,8 @@ class DigitUberSaver:
             start_frame=start_frame,
             frame_pad=frame_pad,
             save_workflow=save_workflow,
-            video=video,
-            video_paths=video_paths,
+            video=media if is_video else None,
+            video_paths=list(media) if is_video_paths else None,
             prompt=prompt,
             extra_pnginfo=extra_pnginfo,
             unique_id=unique_id,
