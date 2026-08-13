@@ -22,7 +22,7 @@ This means:
 
 ## The Nodes
 
-**52 nodes** registered in v4.0.1 (including 1 deprecated alias). All appear under the **DIGIT** category unless noted.
+**53 nodes** registered in v4.0.1 (including 1 deprecated alias). All appear under the **DIGIT** category unless noted.
 
 | Family | Nodes |
 |--------|-------|
@@ -30,7 +30,7 @@ This means:
 | **Video generation** | [Veo Video](#digit-veo-video) · [Gemini Omni Video](#digit-gemini-omni-video) · [Seedance Video](#digit-seedance-video) · [Seedance Video (Replicate)](#digit-seedance-video) [deprecated] · [MU Seedance 2 Character](#digit-mu-seedance-2-character) |
 | **LLM & prompts** | [LLM Query](#digit-llm-query) · [Random Prompt](#digit-random-prompt) · [Prompt Combine](#digit-prompt-combine) · [Text Encode](#digit-text-encode) |
 | **Subtitles / SRT** | [SRT Maker](#digit-srt-maker) · [SRT From Video](#digit-srt-from-video) · [Batch SRT From Video](#digit-batch-srt-from-video) · [SRT Tools](#digit-srt-tools) · [SRT Preview](#digit-srt-preview) |
-| **Pipeline I/O** | [Image Saver](#digit-image-saver) · [Video Saver](#digit-video-saver) · [Image Loader](#digit-image-loader) · [Drag Crop](#digit-drag-crop) · [Crop Info](#digit-crop-info) |
+| **Pipeline I/O** | [Uber Saver](#digit-uber-saver) · [Image Saver](#digit-image-saver) · [Video Saver](#digit-video-saver) · [Image Loader](#digit-image-loader) · [Drag Crop](#digit-drag-crop) · [Crop Info](#digit-crop-info) |
 | **Dataset & captioning** | [Batch Caption](#digit-batch-caption) · [Caption Viewer](#digit-caption-viewer) · [Caption Find & Replace](#digit-caption-find--replace) · [Dataset Prep](#digit-dataset-prep) |
 | **LoRA training** | [Dataset Manager](#digit-lora-training-suite) · [Captioner](#digit-lora-training-suite) · [Caption Preset Manager](#digit-lora-training-suite) · [LoRA Trainer](#digit-lora-training-suite) · [LoRA Loader (training)](#digit-lora-training-suite) · [Naming / Trigger / Sample Prompt Presets](#digit-lora-training-suite) · [LoRA Loader](#digit-lora-loader) · [LoRA Loader (Model Only)](#digit-lora-loader) |
 | **ElevenLabs** (`DIGIT/ElevenLabs`) | [Voice Selector](#digit-elevenlabs-suite) · [Text to Speech](#digit-elevenlabs-suite) · [Speech to Text](#digit-elevenlabs-suite) · [Sound Effects](#digit-elevenlabs-suite) · [Voice Isolation](#digit-elevenlabs-suite) · [Voice Clone](#digit-elevenlabs-suite) · [Speech to Speech](#digit-elevenlabs-suite) · [Dialogue](#digit-elevenlabs-suite) |
@@ -475,6 +475,31 @@ Total characters: 3842
 Avg chars/entry: 81
 Warnings: 3
 ```
+
+---
+
+### DIGIT Uber Saver
+
+One node to rule them all. Connect an image or video, pick the destination, and save it with the same pipeline naming rules.
+
+**Visible controls:**
+
+| Input | Type | Description |
+|-------|------|-------------|
+| image | IMAGE | Optional image or image batch. |
+| video | VIDEO | Optional video. |
+| video_paths | VIDEO_PATHS | Optional batch of video paths. |
+| project | COMBO | Existing `#####_` project. |
+| shot | COMBO | Existing shot, or make one with **+ Shot**. |
+| folder | COMBO | Existing path under the shot, or make one with **+ Folder**. Paths can be eight levels deep. |
+| name | STRING | File name without frame or extension. Empty uses `PREFIX_SHOT_FOLDER`. |
+| Next output | READ ONLY | Full path and next available frame before saving. |
+
+Connect one media type at a time. Connecting image and video together stops with a clear error.
+
+**Advanced** contains the PROJEKTS root, image format, JPEG quality, EXR tone mapping, start frame, frame padding, preview, and workflow metadata. Video always saves as MP4.
+
+After saving, the node shows the saved path and advances **Next output** to the next frame.
 
 ---
 

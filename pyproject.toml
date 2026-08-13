@@ -75,6 +75,7 @@ include = [
     "image_saver_node.py",
     "image_loader_node.py",
     "video_saver_node.py",
+    "uber_saver_node.py",
 ]
 omit = ["tests/*"]
 
