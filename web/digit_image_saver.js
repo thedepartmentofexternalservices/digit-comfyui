@@ -21,42 +21,15 @@ function isSentinelList(items) {
     return false;
 }
 
-function comboValues(widget) {
-    if (!widget) return [];
-    if (widget._digitList && Array.isArray(widget._digitList.values)) return widget._digitList.values;
-    const raw = widget.options && widget.options.values;
-    if (typeof raw === "function") {
-        try {
-            const result = raw();
-            return Array.isArray(result) ? result : [];
-        } catch (_err) {
-            return [];
-        }
-    }
-    return Array.isArray(raw) ? raw : [];
-}
-
-function bindComboList(widget, initial) {
-    if (!widget || !widget.options) return widget;
-    if (!widget._digitList) {
-        const current = comboValues(widget);
-        widget._digitList = { values: current.length ? current.slice() : (initial || [""]) };
-        widget.options.values = () => widget._digitList.values;
-    }
-    return widget;
-}
-
 function keepValueInOptions(widget, incoming, keepCurrent = true) {
     if (!widget || !widget.options) return;
-    bindComboList(widget);
     const current = widget.value;
     const values = Array.isArray(incoming) ? incoming.filter((name) => isUsableName(name)) : [];
     if (keepCurrent && isUsableName(current) && !values.includes(current)) {
         values.unshift(current);
     }
     const next = values.length ? values : (keepCurrent && isUsableName(current) ? [current] : [""]);
-    widget._digitList.values = next;
-    widget.options.values = () => widget._digitList.values;
+    widget.options.values = next;
     if (!keepCurrent && isUsableName(current) && !next.includes(current)) {
         widget.value = next[0] || "";
     }
@@ -95,10 +68,6 @@ app.registerExtension({
 
         if (!rootWidget || !projectWidget) return;
         if (isHasShotNode && !shotWidget) return;
-
-        bindComboList(rootWidget);
-        bindComboList(projectWidget);
-        if (shotWidget) bindComboList(shotWidget);
 
         let refreshGen = 0;
         let retryIndex = 0;
