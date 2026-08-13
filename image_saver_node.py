@@ -15,8 +15,10 @@ from server import PromptServer
 from .projekts_utils import (
     SENTINEL_NO_SHOTS,
     combo_choices,
+    create_shot_dir,
     get_available_projekts_roots,
     health_payload,
+    is_placeholder,
     is_storage_unavailable,
     is_within_roots,
     next_frame,
@@ -129,6 +131,41 @@ async def get_tasks(request):
     return _json_scan(scan_child_folders(root, project, shot, subfolder))
 
 
+@PromptServer.instance.routes.post("/digit/create_shot")
+async def create_shot(request):
+    try:
+        data = await request.json()
+    except (TypeError, ValueError):
+        return web.json_response({"error": "invalid json"}, status=400)
+    if not isinstance(data, dict):
+        return web.json_response({"error": "invalid json"}, status=400)
+    root = _constrained_root(data.get("root", ""))
+    if not root:
+        return web.json_response({"error": "root not allowed"}, status=403)
+    project = str(data.get("project", "")).strip()
+    shot = str(data.get("shot", "")).strip()
+    subfolder = data.get("subfolder") or None
+    task = data.get("task") or None
+    try:
+        created = create_shot_dir(root, project, shot, subfolder, task)
+    except FileNotFoundError as exc:
+        return web.json_response({"error": str(exc)}, status=404)
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+    except OSError as exc:
+        return web.json_response({"error": str(exc)}, status=503)
+    shots = scan_shots(root, project)
+    if is_storage_unavailable(shots):
+        return web.json_response({"error": "storage unavailable", "shots": shots}, status=503)
+    cleaned = [name for name in shots if name and not is_placeholder(name)]
+    return web.json_response({
+        "ok": True,
+        "shot": shot,
+        "path": created,
+        "shots": cleaned,
+    })
+
+
 class DigitImageSaver:
     CATEGORY = "DIGIT"
     RETURN_TYPES = ("STRING",)
@@ -141,14 +178,13 @@ class DigitImageSaver:
         available_roots = get_available_projekts_roots() or [""]
         first_root = available_roots[0]
         projects = combo_choices(scan_projects(first_root)) if first_root else [""]
-        shots = [""]
 
         return {
             "required": {
                 "image": ("IMAGE",),
                 "projekts_root": (available_roots,),
                 "project": (projects,),
-                "shot": (shots,),
+                "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
                 "subfolder": ("STRING", {"default": "comfy"}),
                 "task": ("STRING", {"default": "comp"}),
                 "format": (["png", "jpg", "exr"],),

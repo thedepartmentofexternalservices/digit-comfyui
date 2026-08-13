@@ -21,13 +21,17 @@ function isSentinelList(items) {
     return false;
 }
 
-function keepValueInOptions(widget, incoming) {
+function keepValueInOptions(widget, incoming, keepCurrent = true) {
+    if (!widget || !widget.options) return;
     const current = widget.value;
     const values = Array.isArray(incoming) ? incoming.filter((name) => isUsableName(name)) : [];
-    if (isUsableName(current) && !values.includes(current)) {
+    if (keepCurrent && isUsableName(current) && !values.includes(current)) {
         values.unshift(current);
     }
-    widget.options.values = values.length ? values : (isUsableName(current) ? [current] : [""]);
+    widget.options.values = values.length ? values : (keepCurrent && isUsableName(current) ? [current] : [""]);
+    if (!keepCurrent && isUsableName(current) && !values.includes(current)) {
+        widget.value = values[0] || "";
+    }
 }
 
 app.registerExtension({
@@ -71,6 +75,7 @@ app.registerExtension({
             return pick;
         }
 
+        const shotPick = isHasShotNode ? addPick(shotWidget, "shot_pick") : null;
         const subfolderPick = isHasShotNode ? addPick(subfolderWidget, "subfolder_pick") : null;
         const taskPick = isHasShotNode ? addPick(taskWidget, "task_pick") : null;
 
@@ -123,6 +128,10 @@ app.registerExtension({
             return resp.json();
         }
 
+        function shotCombo() {
+            return shotPick || (shotWidget && shotWidget.options ? shotWidget : null);
+        }
+
         async function refreshRoots(gen) {
             const roots = await fetchJson("/digit/roots");
             if (gen !== refreshGen) return;
@@ -148,12 +157,15 @@ app.registerExtension({
             return "";
         }
 
-        async function refreshShots(gen) {
+        async function refreshShots(gen, opts = {}) {
             if (!shotWidget) return "";
-            const root = rootWidget.value;
-            const project = projectWidget.value;
+            const resetIfMissing = Boolean(opts.resetIfMissing);
+            const root = opts.root !== undefined ? opts.root : rootWidget.value;
+            const project = opts.project !== undefined ? opts.project : projectWidget.value;
+            const target = shotCombo();
             if (!root || !isUsableName(project)) {
-                keepValueInOptions(shotWidget, []);
+                keepValueInOptions(target, [], false);
+                if (resetIfMissing) shotWidget.value = "";
                 return "";
             }
             const shots = await fetchJson(
@@ -161,18 +173,29 @@ app.registerExtension({
             );
             if (gen !== refreshGen) return "";
             if (isSentinelList(shots)) {
-                keepValueInOptions(shotWidget, []);
-                const saved = shotWidget.value;
-                if (isUsableName(saved)) {
-                    return `Saved shot ${saved} not in current list — project has no shots. Refresh to retry.`;
+                keepValueInOptions(target, [], false);
+                if (resetIfMissing) {
+                    shotWidget.value = "";
+                    if (target) target.value = "";
                 }
-                return "No shots in this project.";
+                const saved = shotWidget.value;
+                if (!resetIfMissing && isUsableName(saved)) {
+                    return `Saved shot ${saved} not in current list — project has no shots. Create shot or Refresh.`;
+                }
+                return "No shots in this project. Type a name and click Create shot.";
             }
-            keepValueInOptions(shotWidget, shots);
+            keepValueInOptions(target, shots, !resetIfMissing);
+            if (resetIfMissing && !shots.includes(shotWidget.value)) {
+                shotWidget.value = shots[0] || "";
+                if (target) target.value = shotWidget.value;
+            } else if (target && isUsableName(shotWidget.value)) {
+                target.value = shotWidget.value;
+            }
             const saved = shotWidget.value;
-            if (isUsableName(saved) && !shots.includes(saved)) {
-                return `Saved shot ${saved} not in current list. Refresh to retry.`;
+            if (!resetIfMissing && isUsableName(saved) && !shots.includes(saved)) {
+                return `Saved shot ${saved} not in current list. Create shot or Refresh.`;
             }
+            node.setDirtyCanvas(true);
             return "";
         }
 
@@ -249,32 +272,39 @@ app.registerExtension({
             }
         }
 
-        const origRootCallback = rootWidget.callback;
-        rootWidget.callback = async function(value) {
-            if (origRootCallback) origRootCallback.call(this, value);
+        async function onRootChanged(value) {
+            if (value !== undefined) rootWidget.value = value;
             clearRetry();
             const gen = ++refreshGen;
             try {
                 const projectWarning = await refreshProjects(gen);
                 if (gen !== refreshGen) return;
                 let shotWarning = "";
-                if (isHasShotNode) shotWarning = await refreshShots(gen);
+                if (isHasShotNode) {
+                    shotWarning = await refreshShots(gen, { resetIfMissing: true });
+                    if (gen !== refreshGen) return;
+                    await refreshSubfolders(gen);
+                    if (gen !== refreshGen) return;
+                    await refreshTasks(gen);
+                }
                 if (gen !== refreshGen) return;
                 setStatus(shotWarning || projectWarning);
             } catch (err) {
                 if (gen !== refreshGen) return;
                 scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
             }
-        };
+        }
 
-        const origProjectCallback = projectWidget.callback;
-        projectWidget.callback = async function(value) {
-            if (origProjectCallback) origProjectCallback.call(this, value);
+        async function onProjectChanged(value) {
+            if (value !== undefined) projectWidget.value = value;
             if (!isHasShotNode) return;
             clearRetry();
             const gen = ++refreshGen;
             try {
-                const warning = await refreshShots(gen);
+                const warning = await refreshShots(gen, {
+                    project: projectWidget.value,
+                    resetIfMissing: true,
+                });
                 if (gen !== refreshGen) return;
                 await refreshSubfolders(gen);
                 if (gen !== refreshGen) return;
@@ -285,12 +315,34 @@ app.registerExtension({
                 if (gen !== refreshGen) return;
                 scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
             }
+        }
+
+        const origRootCallback = rootWidget.callback;
+        rootWidget.callback = async function(value) {
+            if (origRootCallback) origRootCallback.call(this, value);
+            await onRootChanged(value);
+        };
+
+        const origProjectCallback = projectWidget.callback;
+        projectWidget.callback = async function(value) {
+            if (origProjectCallback) origProjectCallback.call(this, value);
+            await onProjectChanged(value);
+        };
+
+        const origOnWidgetChanged = node.onWidgetChanged;
+        node.onWidgetChanged = function(name, value, oldValue) {
+            if (origOnWidgetChanged) origOnWidgetChanged.apply(this, arguments);
+            if (value === oldValue) return;
+            if (name === "projekts_root") onRootChanged(value);
+            if (name === "project") onProjectChanged(value);
         };
 
         if (shotWidget) {
             const origShotCallback = shotWidget.callback;
             shotWidget.callback = async function(value) {
                 if (origShotCallback) origShotCallback.call(this, value);
+                if (value !== undefined) shotWidget.value = value;
+                if (shotPick && isUsableName(value)) shotPick.value = value;
                 clearRetry();
                 const gen = ++refreshGen;
                 try {
@@ -317,6 +369,53 @@ app.registerExtension({
                     scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
                 }
             };
+        }
+
+        if (isHasShotNode) {
+            node.addWidget("button", "create_shot", "Create shot", async () => {
+                const root = rootWidget.value;
+                const project = projectWidget.value;
+                const shot = (shotWidget.value || "").trim();
+                if (!root || !isUsableName(project)) {
+                    setStatus("Pick a project first.");
+                    return;
+                }
+                if (!isUsableName(shot)) {
+                    setStatus("Type a shot name first.");
+                    return;
+                }
+                setStatus(`Creating shot ${shot}…`);
+                try {
+                    const resp = await api.fetchApi("/digit/create_shot", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            root,
+                            project,
+                            shot,
+                            subfolder: subfolderWidget ? subfolderWidget.value : "",
+                            task: taskWidget ? taskWidget.value : "",
+                        }),
+                    });
+                    const payload = await resp.json();
+                    if (resp.status !== 200) {
+                        setStatus((payload && payload.error) || `Create shot failed (${resp.status})`);
+                        return;
+                    }
+                    shotWidget.value = payload.shot || shot;
+                    keepValueInOptions(shotCombo(), payload.shots || [shotWidget.value], false);
+                    if (shotPick) shotPick.value = shotWidget.value;
+                    const gen = ++refreshGen;
+                    await refreshSubfolders(gen);
+                    if (gen !== refreshGen) return;
+                    await refreshTasks(gen);
+                    if (gen !== refreshGen) return;
+                    setStatus(`Created shot ${shotWidget.value}`);
+                    node.setDirtyCanvas(true);
+                } catch (_err) {
+                    setStatus("Create shot failed. Refresh PROJEKTS to retry.");
+                }
+            });
         }
 
         node.addWidget("button", "refresh_projekts", "Refresh PROJEKTS", () => {

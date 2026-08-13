@@ -146,13 +146,12 @@ class DigitVideoSaver:
         available_roots = get_available_projekts_roots() or [""]
         first_root = available_roots[0]
         projects = combo_choices(scan_projects(first_root)) if first_root else [""]
-        shots = [""]
 
         return {
             "required": {
                 "projekts_root": (available_roots,),
                 "project": (projects,),
-                "shot": (shots,),
+                "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
                 "subfolder": ("STRING", {"default": "comfy"}),
                 "task": ("STRING", {"default": "comp"}),
                 "start_frame": ("INT", {"default": 1001, "min": 0, "max": 99999999, "step": 1}),
