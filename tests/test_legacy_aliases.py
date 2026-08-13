@@ -50,6 +50,13 @@ def test_digit_replicate_seedance_registered():
     assert "[deprecated]" in display["DigitReplicateSeedance"]
 
 
+def test_digit_uber_saver_registered():
+    class_keys, display, display_keys = _parse_init_mappings()
+    assert "DigitUberSaver" in class_keys
+    assert "DigitUberSaver" in display_keys
+    assert display["DigitUberSaver"] == "DIGIT Uber Saver"
+
+
 def test_legacy_alias_map_matches_registration():
     from legacy_aliases import LEGACY_CLASS_ALIASES
 
