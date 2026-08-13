@@ -212,3 +212,14 @@ def test_image_saver_writes_to_folder_path(tmp_path):
     assert one_path.is_file()
     assert one_path.name == "plate_ref.1001.png"
     assert one_path.parent == root / "12345_demo" / "shots" / "sh010" / "plates"
+
+    deep = saver.save_image(
+        FakeTensorImage(), str(root), "12345_demo", "sh010",
+        "comfy", "comp", "png", "linear", 95, 1001, 4, False, "none",
+        filename="hero_wide_v001",
+        folder="comfy/comp/v001",
+    )
+    deep_path = Path(deep["result"][0])
+    assert deep_path.is_file()
+    assert deep_path.name == "hero_wide_v001.1001.png"
+    assert deep_path.parent == root / "12345_demo" / "shots" / "sh010" / "comfy" / "comp" / "v001"

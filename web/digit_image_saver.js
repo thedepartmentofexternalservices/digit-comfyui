@@ -365,7 +365,7 @@ app.registerExtension({
                     return;
                 }
                 const typed = window.prompt(
-                    "Folder (e.g. comfy/paint or plates)",
+                    "Folder (e.g. comfy/comp, comfy/comp/v001, or plates)",
                     folderWidget && folderWidget.value ? folderWidget.value : "comfy/comp"
                 );
                 if (typed == null) return;

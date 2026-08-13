@@ -250,25 +250,26 @@ def scan_child_folders(projekts_root, project, shot, subfolder=None):
     return folders if folders else [""]
 
 
-def parse_folder(folder):
-    """Split a save-dialog folder into (subfolder, task).
+_MAX_FOLDER_DEPTH = 8
 
-    ``comfy/comp`` → two levels. ``plates`` → one level (task is None).
-    Empty defaults to comfy/comp.
+
+def parse_folder(folder):
+    """Validated relative folder segments under a shot.
+
+    Empty defaults to ``comfy/comp``. Rejects ``..``, absolute paths, and
+    more than ``_MAX_FOLDER_DEPTH`` segments.
     """
     text = str(folder or "").strip().replace("\\", "/").strip("/")
     if text == "":
-        return "comfy", "comp"
+        return ["comfy", "comp"]
     parts = [part for part in text.split("/") if part]
     if not parts:
-        return "comfy", "comp"
+        return ["comfy", "comp"]
     for part in parts:
         validate_segment("folder", part)
-    if len(parts) > 2:
-        _reject("folder can be at most two levels, like comfy/comp")
-    if len(parts) == 1:
-        return parts[0], None
-    return parts[0], parts[1]
+    if len(parts) > _MAX_FOLDER_DEPTH:
+        _reject(f"folder can be at most {_MAX_FOLDER_DEPTH} levels")
+    return parts
 
 
 def effective_folder(folder="", subfolder=None, task=None):
@@ -289,11 +290,8 @@ def resolve_folder_dir(projekts_root, project, shot, folder):
         _reject("projekts_root is required")
     validate_segment("project", project)
     validate_segment("shot", shot)
-    subfolder, task = parse_folder(folder)
-    if task:
-        target_dir = os.path.join(projekts_root, project, "shots", shot, subfolder, task)
-    else:
-        target_dir = os.path.join(projekts_root, project, "shots", shot, subfolder)
+    parts = parse_folder(folder)
+    target_dir = os.path.join(projekts_root, project, "shots", shot, *parts)
     if not is_within_roots(target_dir, roots=[projekts_root]):
         _reject(
             f"Pipeline path escapes PROJEKTS root {projekts_root!r}: {target_dir}"
@@ -302,7 +300,7 @@ def resolve_folder_dir(projekts_root, project, shot, folder):
 
 
 def scan_shot_folders(projekts_root, project, shot):
-    """Existing folders under a shot, as ``sub`` or ``sub/task`` paths."""
+    """Existing folders under a shot, as relative paths at any depth."""
     try:
         validate_segment("project", project)
         validate_segment("shot", shot)
@@ -311,28 +309,29 @@ def scan_shot_folders(projekts_root, project, shot):
     shot_dir = os.path.join(projekts_root, project, "shots", shot)
     if not _is_dir_safe(shot_dir):
         return [""]
+    found = []
+
+    def walk(rel, depth):
+        current = os.path.join(shot_dir, rel) if rel else shot_dir
+        try:
+            names = listdir_resilient(current)
+        except StorageUnavailableError:
+            raise
+        for name in sorted(names):
+            if is_placeholder(name):
+                continue
+            child = os.path.join(current, name)
+            if not _is_dir_safe(child):
+                continue
+            path = f"{rel}/{name}" if rel else name
+            found.append(path)
+            if depth < _MAX_FOLDER_DEPTH:
+                walk(path, depth + 1)
+
     try:
-        names = listdir_resilient(shot_dir)
+        walk("", 1)
     except StorageUnavailableError:
         return [SENTINEL_STORAGE_UNAVAILABLE]
-    found = []
-    for name in sorted(names):
-        if is_placeholder(name):
-            continue
-        child = os.path.join(shot_dir, name)
-        if not _is_dir_safe(child):
-            continue
-        try:
-            kids = [
-                kid for kid in sorted(listdir_resilient(child))
-                if not is_placeholder(kid) and _is_dir_safe(os.path.join(child, kid))
-            ]
-        except StorageUnavailableError:
-            return [SENTINEL_STORAGE_UNAVAILABLE]
-        if kids:
-            found.extend(f"{name}/{kid}" for kid in kids)
-        else:
-            found.append(name)
     return found if found else [""]
 
 
@@ -457,8 +456,7 @@ def sanitize_filename_stem(value):
 
 def folder_task_name(folder):
     """Last path segment of a save-dialog folder, used in PREFIX_SHOT_TASK."""
-    subfolder, task = parse_folder(folder)
-    return task or subfolder
+    return parse_folder(folder)[-1]
 
 
 def file_stem(project, shot, task, filename=""):

@@ -218,12 +218,13 @@ def test_create_shot_dir_rejects_placeholder_and_missing_project(tmp_path):
 
 
 def test_parse_folder_defaults_and_levels():
-    assert projekts_utils.parse_folder("") == ("comfy", "comp")
-    assert projekts_utils.parse_folder("comfy/comp") == ("comfy", "comp")
-    assert projekts_utils.parse_folder("plates") == ("plates", None)
-    assert projekts_utils.parse_folder("  comfy/paint  ") == ("comfy", "paint")
-    with pytest.raises(ValueError, match="two levels"):
-        projekts_utils.parse_folder("comfy/comp/extra")
+    assert projekts_utils.parse_folder("") == ["comfy", "comp"]
+    assert projekts_utils.parse_folder("comfy/comp") == ["comfy", "comp"]
+    assert projekts_utils.parse_folder("plates") == ["plates"]
+    assert projekts_utils.parse_folder("  comfy/paint  ") == ["comfy", "paint"]
+    assert projekts_utils.parse_folder("comfy/comp/v001") == ["comfy", "comp", "v001"]
+    with pytest.raises(ValueError, match="at most 8 levels"):
+        projekts_utils.parse_folder("/".join(f"l{i}" for i in range(9)))
     with pytest.raises(ValueError, match="must not be"):
         projekts_utils.parse_folder("../evil")
 
@@ -235,12 +236,18 @@ def test_effective_folder_prefers_folder_over_legacy():
     assert projekts_utils.effective_folder() == "comfy/comp"
 
 
-def test_resolve_folder_dir_two_and_one_level(tmp_path):
+def test_resolve_folder_dir_any_depth(tmp_path):
     root = tmp_path / "PROJEKTS"
     two = projekts_utils.resolve_folder_dir(str(root), "12345_demo", "sh010", "comfy/comp")
     one = projekts_utils.resolve_folder_dir(str(root), "12345_demo", "sh010", "plates")
+    deep = projekts_utils.resolve_folder_dir(
+        str(root), "12345_demo", "sh010", "comfy/comp/v001"
+    )
     assert two == os.path.join(str(root), "12345_demo", "shots", "sh010", "comfy", "comp")
     assert one == os.path.join(str(root), "12345_demo", "shots", "sh010", "plates")
+    assert deep == os.path.join(
+        str(root), "12345_demo", "shots", "sh010", "comfy", "comp", "v001"
+    )
     with pytest.raises(ValueError, match="must not be"):
         projekts_utils.resolve_folder_dir(str(root), "12345_demo", "sh010", "../evil")
 
@@ -248,11 +255,11 @@ def test_resolve_folder_dir_two_and_one_level(tmp_path):
 def test_scan_shot_folders_lists_nested_and_leaf(tmp_path):
     root = tmp_path / "PROJEKTS"
     shot = root / "12345_demo" / "shots" / "sh010"
-    (shot / "comfy" / "comp").mkdir(parents=True)
+    (shot / "comfy" / "comp" / "v001").mkdir(parents=True)
     (shot / "comfy" / "paint").mkdir(parents=True)
     (shot / "plates").mkdir(parents=True)
     found = projekts_utils.scan_shot_folders(str(root), "12345_demo", "sh010")
-    assert found == ["comfy/comp", "comfy/paint", "plates"]
+    assert found == ["comfy", "comfy/comp", "comfy/comp/v001", "comfy/paint", "plates"]
     assert projekts_utils.scan_shot_folders(str(root), "12345_demo", "(no shots found)") == [""]
 
 
