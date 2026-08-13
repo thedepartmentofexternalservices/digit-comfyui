@@ -21,16 +21,44 @@ function isSentinelList(items) {
     return false;
 }
 
+function comboValues(widget) {
+    if (!widget) return [];
+    if (widget._digitList && Array.isArray(widget._digitList.values)) return widget._digitList.values;
+    const raw = widget.options && widget.options.values;
+    if (typeof raw === "function") {
+        try {
+            const result = raw();
+            return Array.isArray(result) ? result : [];
+        } catch (_err) {
+            return [];
+        }
+    }
+    return Array.isArray(raw) ? raw : [];
+}
+
+function bindComboList(widget, initial) {
+    if (!widget || !widget.options) return widget;
+    if (!widget._digitList) {
+        const current = comboValues(widget);
+        widget._digitList = { values: current.length ? current.slice() : (initial || [""]) };
+        widget.options.values = () => widget._digitList.values;
+    }
+    return widget;
+}
+
 function keepValueInOptions(widget, incoming, keepCurrent = true) {
     if (!widget || !widget.options) return;
+    bindComboList(widget);
     const current = widget.value;
     const values = Array.isArray(incoming) ? incoming.filter((name) => isUsableName(name)) : [];
     if (keepCurrent && isUsableName(current) && !values.includes(current)) {
         values.unshift(current);
     }
-    widget.options.values = values.length ? values : (keepCurrent && isUsableName(current) ? [current] : [""]);
-    if (!keepCurrent && isUsableName(current) && !values.includes(current)) {
-        widget.value = values[0] || "";
+    const next = values.length ? values : (keepCurrent && isUsableName(current) ? [current] : [""]);
+    widget._digitList.values = next;
+    widget.options.values = () => widget._digitList.values;
+    if (!keepCurrent && isUsableName(current) && !next.includes(current)) {
+        widget.value = next[0] || "";
     }
 }
 
@@ -55,6 +83,9 @@ app.registerExtension({
         if (!rootWidget || !projectWidget) return;
         if (isHasShotNode && !shotWidget) return;
 
+        bindComboList(rootWidget);
+        bindComboList(projectWidget);
+
         const filepathWidget = node.addWidget("text", "filepath_display", "", () => {}, {
             serialize: false,
         });
@@ -67,15 +98,18 @@ app.registerExtension({
 
         function addPick(sourceWidget, name) {
             if (!sourceWidget) return null;
-            const pick = node.addWidget("combo", name, sourceWidget.value || "", (value) => {
+            const start = sourceWidget.value || "";
+            const listRef = { values: [start] };
+            const pick = node.addWidget("combo", name, start, (value) => {
                 sourceWidget.value = value;
                 node.setDirtyCanvas(true);
                 if (sourceWidget.callback) sourceWidget.callback(value);
-            }, { values: [sourceWidget.value || ""], serialize: false });
+            }, { values: () => listRef.values, serialize: false });
+            pick._digitList = listRef;
             return pick;
         }
 
-        const shotPick = isHasShotNode ? addPick(shotWidget, "shot_pick") : null;
+        const shotPick = isHasShotNode ? addPick(shotWidget, "pick shot") : null;
         const subfolderPick = isHasShotNode ? addPick(subfolderWidget, "subfolder_pick") : null;
         const taskPick = isHasShotNode ? addPick(taskWidget, "task_pick") : null;
 
@@ -128,8 +162,13 @@ app.registerExtension({
             return resp.json();
         }
 
+        function shotCombos() {
+            return [shotPick, shotWidget].filter((widget) => widget && widget.options);
+        }
+
         function shotCombo() {
-            return shotPick || (shotWidget && shotWidget.options ? shotWidget : null);
+            const widgets = shotCombos();
+            return widgets[0] || null;
         }
 
         async function refreshRoots(gen) {
@@ -162,9 +201,9 @@ app.registerExtension({
             const resetIfMissing = Boolean(opts.resetIfMissing);
             const root = opts.root !== undefined ? opts.root : rootWidget.value;
             const project = opts.project !== undefined ? opts.project : projectWidget.value;
-            const target = shotCombo();
+            const targets = shotCombos();
             if (!root || !isUsableName(project)) {
-                keepValueInOptions(target, [], false);
+                targets.forEach((target) => keepValueInOptions(target, [], false));
                 if (resetIfMissing) shotWidget.value = "";
                 return "";
             }
@@ -173,10 +212,10 @@ app.registerExtension({
             );
             if (gen !== refreshGen) return "";
             if (isSentinelList(shots)) {
-                keepValueInOptions(target, [], false);
+                targets.forEach((target) => keepValueInOptions(target, [], false));
                 if (resetIfMissing) {
                     shotWidget.value = "";
-                    if (target) target.value = "";
+                    targets.forEach((target) => { target.value = ""; });
                 }
                 const saved = shotWidget.value;
                 if (!resetIfMissing && isUsableName(saved)) {
@@ -184,13 +223,15 @@ app.registerExtension({
                 }
                 return "No shots in this project. Type a name and click Create shot.";
             }
-            keepValueInOptions(target, shots, !resetIfMissing);
+            targets.forEach((target) => keepValueInOptions(target, shots, !resetIfMissing));
             if (resetIfMissing && !shots.includes(shotWidget.value)) {
                 shotWidget.value = shots[0] || "";
-                if (target) target.value = shotWidget.value;
-            } else if (target && isUsableName(shotWidget.value)) {
-                target.value = shotWidget.value;
             }
+            targets.forEach((target) => {
+                if (isUsableName(shotWidget.value) && target.value !== shotWidget.value) {
+                    target.value = shotWidget.value;
+                }
+            });
             const saved = shotWidget.value;
             if (!resetIfMissing && isUsableName(saved) && !shots.includes(saved)) {
                 return `Saved shot ${saved} not in current list. Create shot or Refresh.`;
