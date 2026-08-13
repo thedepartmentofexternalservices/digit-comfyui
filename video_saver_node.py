@@ -8,11 +8,11 @@ import shutil
 import folder_paths
 
 from .projekts_utils import (
+    combo_choices,
     get_available_projekts_roots,
     next_frame,
     resolve_pipeline_dir,
     scan_projects,
-    scan_shots,
 )
 
 logger = logging.getLogger("DigitVideoSaver")
@@ -143,12 +143,10 @@ class DigitVideoSaver:
 
     @classmethod
     def INPUT_TYPES(cls):
-        available_roots = get_available_projekts_roots()
-
+        available_roots = get_available_projekts_roots() or [""]
         first_root = available_roots[0]
-        projects = scan_projects(first_root)
-        first_project = projects[0] if projects else ""
-        shots = scan_shots(first_root, first_project)
+        projects = combo_choices(scan_projects(first_root)) if first_root else [""]
+        shots = [""]
 
         return {
             "required": {

@@ -107,3 +107,23 @@ def test_image_loader_errors_on_missing_frames(tmp_path):
             str(root), "12345_demo", "sh010", "comfy", "comp", "png",
             on_missing="error",
         )
+
+
+def test_input_types_does_not_bake_no_shots_found(tmp_path, monkeypatch):
+    root = tmp_path / "PROJEKTS"
+    (root / "00000_empty").mkdir(parents=True)
+    (root / "12345_demo" / "shots" / "sh010").mkdir(parents=True)
+    monkeypatch.setenv("DIGIT_PROJEKTS_ROOTS", str(root))
+
+    for cls in (
+        image_saver_node.DigitImageSaver,
+        image_loader_node.DigitImageLoader,
+        video_saver_node.DigitVideoSaver,
+    ):
+        types = cls.INPUT_TYPES()
+        shots = types["required"]["shot"][0]
+        projects = types["required"]["project"][0]
+        assert "(no shots found)" not in shots
+        assert "(no projects found)" not in projects
+        assert shots == [""]
+        assert "12345_demo" in projects

@@ -12,12 +12,12 @@ from server import PromptServer
 
 from .projekts_utils import (
     FRAME_RE,
+    combo_choices,
     get_available_projekts_roots,
     is_placeholder,
     is_within_roots,
     resolve_pipeline_dir,
     scan_projects,
-    scan_shots,
 )
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".exr", ".tif", ".tiff", ".bmp", ".webp"}
@@ -109,12 +109,10 @@ class DigitImageLoader:
         except (FileNotFoundError, OSError):
             files = []
 
-        available_roots = get_available_projekts_roots()
-
+        available_roots = get_available_projekts_roots() or [""]
         first_root = available_roots[0]
-        projects = scan_projects(first_root)
-        first_project = projects[0] if projects else ""
-        shots = scan_shots(first_root, first_project)
+        projects = combo_choices(scan_projects(first_root)) if first_root else [""]
+        shots = [""]
 
         return {
             "required": {

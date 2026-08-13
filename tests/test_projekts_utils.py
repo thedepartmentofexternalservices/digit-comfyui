@@ -157,3 +157,11 @@ def test_is_within_roots_rejects_escape():
 
         assert projekts_utils.is_within_roots(inside, roots=[root]) is True
         assert projekts_utils.is_within_roots(outside, roots=[root]) is False
+
+
+def test_combo_choices_strips_sentinels():
+    assert projekts_utils.combo_choices(["(no shots found)"]) == [""]
+    assert projekts_utils.combo_choices(["(storage unavailable)"]) == [""]
+    assert projekts_utils.combo_choices([]) == [""]
+    assert projekts_utils.combo_choices(["12345_demo", "(no projects found)"]) == ["12345_demo"]
+    assert projekts_utils.combo_choices(["sh010", "ROUND_04"]) == ["sh010", "ROUND_04"]

@@ -14,6 +14,7 @@ from server import PromptServer
 
 from .projekts_utils import (
     SENTINEL_NO_SHOTS,
+    combo_choices,
     get_available_projekts_roots,
     is_storage_unavailable,
     is_within_roots,
@@ -81,12 +82,10 @@ class DigitImageSaver:
 
     @classmethod
     def INPUT_TYPES(cls):
-        available_roots = get_available_projekts_roots()
-
+        available_roots = get_available_projekts_roots() or [""]
         first_root = available_roots[0]
-        projects = scan_projects(first_root)
-        first_project = projects[0] if projects else ""
-        shots = scan_shots(first_root, first_project)
+        projects = combo_choices(scan_projects(first_root)) if first_root else [""]
+        shots = [""]
 
         return {
             "required": {

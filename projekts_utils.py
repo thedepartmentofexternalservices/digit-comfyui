@@ -64,6 +64,14 @@ def is_storage_unavailable(items):
     return items == [SENTINEL_STORAGE_UNAVAILABLE]
 
 
+def combo_choices(items):
+    """Dropdown options for INPUT_TYPES. Never bake UI sentinels into /object_info."""
+    if not items or is_storage_unavailable(items):
+        return [""]
+    cleaned = [name for name in items if not is_placeholder(name)]
+    return cleaned if cleaned else [""]
+
+
 def validate_segment(name, value):
     """Reject empty, placeholder, or path-escaping pipeline segments.
 
