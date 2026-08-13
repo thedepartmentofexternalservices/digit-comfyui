@@ -55,6 +55,8 @@ def test_input_types_keep_media_as_optional_sockets():
     assert set(types["optional"]) == {"image", "video", "video_paths"}
     assert types["optional"]["image"][0] == "IMAGE"
     assert types["optional"]["video"][0] == "VIDEO"
+    assert types["required"]["tonemap"][0][0] == "sRGB"
+    assert types["required"]["quality"][1]["default"] == 100
 
 
 def test_uber_saver_saves_image(tmp_path):
