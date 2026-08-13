@@ -52,14 +52,17 @@ app.registerExtension({
     name: "DIGIT.ImageSaver",
 
     async nodeCreated(node) {
-        const hasShotNodes = ["DigitImageSaver", "DigitImageLoader", "DigitVideoSaver"];
+        const hasShotNodes = [
+            "DigitImageSaver", "DigitImageLoader", "DigitVideoSaver", "DigitUberSaver",
+        ];
         const projectOnlyNodes = ["DigitSRTMaker"];
 
         const isHasShotNode = hasShotNodes.includes(node.comfyClass);
         const isProjectOnlyNode = projectOnlyNodes.includes(node.comfyClass);
         const isImageSaver = node.comfyClass === "DigitImageSaver";
         const isVideoSaver = node.comfyClass === "DigitVideoSaver";
-        const isSaver = isImageSaver || isVideoSaver;
+        const isUberSaver = node.comfyClass === "DigitUberSaver";
+        const isSaver = isImageSaver || isVideoSaver || isUberSaver;
 
         if (!isHasShotNode && !isProjectOnlyNode) return;
 
@@ -67,7 +70,9 @@ app.registerExtension({
         const projectWidget = node.widgets.find(w => w.name === "project");
         const shotWidget = node.widgets.find(w => w.name === "shot");
         const folderWidget = node.widgets.find(w => w.name === "folder");
-        const filenameWidget = node.widgets.find(w => w.name === "filename");
+        const filenameWidget = node.widgets.find(
+            w => w.name === "filename" || w.name === "name"
+        );
         const formatWidget = node.widgets.find(w => w.name === "format");
         const startFrameWidget = node.widgets.find(w => w.name === "start_frame");
         const framePadWidget = node.widgets.find(w => w.name === "frame_pad");
@@ -84,6 +89,38 @@ app.registerExtension({
         }
         hideWidget(leftoverSubfolder);
         hideWidget(leftoverTask);
+
+        const advancedWidgetNames = new Set([
+            "projekts_root", "format", "tonemap", "quality", "start_frame",
+            "frame_pad", "show_preview", "save_workflow",
+        ]);
+        const advancedWidgets = isUberSaver
+            ? node.widgets.filter(widget => advancedWidgetNames.has(widget.name))
+            : [];
+        let advancedVisible = false;
+
+        function setAdvancedVisible(visible) {
+            advancedVisible = visible;
+            for (const widget of advancedWidgets) {
+                if (!Object.prototype.hasOwnProperty.call(widget, "_digitComputeSize")) {
+                    widget._digitComputeSize = widget.computeSize;
+                }
+                widget.hidden = !visible;
+                if (visible) {
+                    if (widget._digitComputeSize === undefined) {
+                        delete widget.computeSize;
+                    } else {
+                        widget.computeSize = widget._digitComputeSize;
+                    }
+                } else {
+                    widget.computeSize = () => [0, -4];
+                }
+            }
+            node.setSize(node.computeSize());
+            node.setDirtyCanvas(true);
+        }
+
+        if (isUberSaver) setAdvancedVisible(false);
 
         let refreshGen = 0;
         let previewGen = 0;
@@ -124,6 +161,24 @@ app.registerExtension({
             node.setDirtyCanvas(true);
         }
 
+        function isInputConnected(name) {
+            const input = node.inputs && node.inputs.find(item => item.name === name);
+            if (!input) return false;
+            return input.link !== null && input.link !== undefined && input.link !== -1
+                || Array.isArray(input.links) && input.links.length > 0;
+        }
+
+        function selectedSaverType() {
+            if (isImageSaver) return "image";
+            if (isVideoSaver) return "video";
+            const hasImage = isInputConnected("image");
+            const hasVideo = isInputConnected("video") || isInputConnected("video_paths");
+            if (hasImage && hasVideo) return "both";
+            if (hasVideo) return "video";
+            if (hasImage) return "image";
+            return "";
+        }
+
         async function refreshOutputPreview() {
             if (!outputPreviewWidget) return;
             const gen = ++previewGen;
@@ -148,9 +203,18 @@ app.registerExtension({
                 setOutputPreview("Pick or create a folder.");
                 return;
             }
+            const saverType = selectedSaverType();
+            if (isUberSaver && saverType === "both") {
+                setOutputPreview("Connect either image or video, not both.");
+                return;
+            }
+            if (isUberSaver && !saverType) {
+                setOutputPreview("Connect an image or video.");
+                return;
+            }
 
             const params = new URLSearchParams({
-                saver: isVideoSaver ? "video" : "image",
+                saver: saverType,
                 root,
                 project,
                 shot,
@@ -410,7 +474,7 @@ app.registerExtension({
             if (name === "projekts_root") onRootChanged(value);
             if (name === "project") onProjectChanged(value);
             if (name === "shot") onShotChanged(value);
-            if (["folder", "filename", "format", "start_frame", "frame_pad"].includes(name)) {
+            if (["folder", "filename", "name", "format", "start_frame", "frame_pad"].includes(name)) {
                 scheduleOutputPreview(true);
             }
         };
@@ -420,6 +484,16 @@ app.registerExtension({
             shotWidget.callback = async function(value) {
                 if (origShotCallback) origShotCallback.call(this, value);
                 await onShotChanged(value);
+            };
+        }
+
+        if (isUberSaver) {
+            const origOnConnectionsChange = node.onConnectionsChange;
+            node.onConnectionsChange = function() {
+                if (origOnConnectionsChange) {
+                    origOnConnectionsChange.apply(this, arguments);
+                }
+                scheduleOutputPreview(true);
             };
         }
 
@@ -510,6 +584,17 @@ app.registerExtension({
                     notify("+ Folder failed. Click Refresh.", true);
                 }
             });
+        }
+
+        if (isUberSaver) {
+            const advancedButton = node.addWidget(
+                "button", "advanced", "Advanced", () => {
+                    setAdvancedVisible(!advancedVisible);
+                    advancedButton.value = advancedVisible
+                        ? "Hide Advanced"
+                        : "Advanced";
+                }
+            );
         }
 
         node.addWidget("button", "refresh_projekts", "Refresh", () => {
