@@ -154,7 +154,7 @@ def test_output_preview_returns_image_and_video_paths_without_writing(tmp_path, 
             / "comfy" / "comp" / "v001"
         )
         target.mkdir(parents=True)
-        (target / "hero_wide.1001.png").write_bytes(b"existing")
+        (target / "12345_hero_wide.1001.png").write_bytes(b"existing")
 
         common = {
             "root": root,
@@ -181,11 +181,11 @@ def test_output_preview_returns_image_and_video_paths_without_writing(tmp_path, 
 
     image_status, image, video_status, video, files = _run(tmp_path, monkeypatch, body)
     assert image_status == 200
-    assert image["filename"] == "hero_wide.1002.png"
+    assert image["filename"] == "12345_hero_wide.1002.png"
     assert image["frame"] == 1002
     assert video_status == 200
-    assert video["filename"] == "hero_wide.1001.mp4"
-    assert files == ["hero_wide.1001.png"]
+    assert video["filename"] == "12345_hero_wide.1001.mp4"
+    assert files == ["12345_hero_wide.1001.png"]
 
 
 def test_output_preview_rejects_bad_destination_and_format(tmp_path, monkeypatch):

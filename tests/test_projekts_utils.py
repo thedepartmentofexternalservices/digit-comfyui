@@ -136,15 +136,16 @@ def test_resolve_pipeline_dir_happy_path(tmp_path):
     assert projekts_utils.is_within_roots(target, roots=[str(root)])
 
 
-def test_file_stem_typed_name_wins():
+def test_file_stem_always_includes_job_number():
     assert projekts_utils.file_stem("12345_demo", "sh010", "comp") == "12345_sh010_comp"
     assert (
         projekts_utils.file_stem("26092_tmobile", "26092_fam_0020", "comp")
         == "26092_fam_0020_comp"
     )
     assert projekts_utils.file_stem("12345_demo", "sh010", "comp", "") == "12345_sh010_comp"
-    assert projekts_utils.file_stem("12345_demo", "sh010", "comp", "hero_wide") == "hero_wide"
-    assert projekts_utils.file_stem("12345_demo", "sh010", "comp", "hero_wide.png") == "hero_wide"
+    assert projekts_utils.file_stem("12345_demo", "sh010", "comp", "hero_wide") == "12345_hero_wide"
+    assert projekts_utils.file_stem("12345_demo", "sh010", "comp", "hero_wide.png") == "12345_hero_wide"
+    assert projekts_utils.file_stem("12345_demo", "sh010", "comp", "12345_hero_wide") == "12345_hero_wide"
     with pytest.raises(ValueError, match="path separators"):
         projekts_utils.file_stem("12345_demo", "sh010", "comp", "../evil")
     with pytest.raises(ValueError, match="Invalid filename"):
@@ -168,7 +169,7 @@ def test_next_output_path_is_exact_and_does_not_write(tmp_path):
     root = tmp_path / "PROJEKTS"
     target = root / "12345_demo" / "shots" / "sh010" / "comfy" / "comp" / "v001"
     target.mkdir(parents=True)
-    (target / "hero_wide.1001.png").write_bytes(b"existing")
+    (target / "12345_hero_wide.1001.png").write_bytes(b"existing")
 
     preview = projekts_utils.next_output_path(
         str(root), "12345_demo", "sh010", "comfy/comp/v001",
@@ -176,14 +177,14 @@ def test_next_output_path_is_exact_and_does_not_write(tmp_path):
     )
 
     assert preview == {
-        "path": str(target / "hero_wide.1002.png"),
+        "path": str(target / "12345_hero_wide.1002.png"),
         "directory": str(target),
-        "filename": "hero_wide.1002.png",
+        "filename": "12345_hero_wide.1002.png",
         "frame": 1002,
-        "stem": "hero_wide",
+        "stem": "12345_hero_wide",
         "extension": "png",
     }
-    assert sorted(path.name for path in target.iterdir()) == ["hero_wide.1001.png"]
+    assert sorted(path.name for path in target.iterdir()) == ["12345_hero_wide.1001.png"]
 
 
 def test_next_output_path_uses_fallback_name_and_validates_numbers(tmp_path):

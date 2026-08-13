@@ -84,7 +84,7 @@ def test_image_saver_uses_typed_filename(tmp_path):
     )
     path = Path(result["result"][0])
     assert path.is_file()
-    assert path.name == "hero_wide.1001.png"
+    assert path.name == "12345_hero_wide.1001.png"
     with pytest.raises(ValueError, match="path separators"):
         saver.save_image(
             FakeTensorImage(), str(root), "12345_demo", "sh010",
@@ -216,7 +216,7 @@ def test_image_saver_writes_to_folder_path(tmp_path):
     )
     two_path = Path(two["result"][0])
     assert two_path.is_file()
-    assert two_path.name == "hero_wide.1001.png"
+    assert two_path.name == "12345_hero_wide.1001.png"
     assert two_path.parent == root / "12345_demo" / "shots" / "sh010" / "comfy" / "comp"
 
     one = saver.save_image(
@@ -227,7 +227,7 @@ def test_image_saver_writes_to_folder_path(tmp_path):
     )
     one_path = Path(one["result"][0])
     assert one_path.is_file()
-    assert one_path.name == "plate_ref.1001.png"
+    assert one_path.name == "12345_plate_ref.1001.png"
     assert one_path.parent == root / "12345_demo" / "shots" / "sh010" / "plates"
 
     deep = saver.save_image(
@@ -238,5 +238,5 @@ def test_image_saver_writes_to_folder_path(tmp_path):
     )
     deep_path = Path(deep["result"][0])
     assert deep_path.is_file()
-    assert deep_path.name == "hero_wide_v001.1001.png"
+    assert deep_path.name == "12345_hero_wide_v001.1001.png"
     assert deep_path.parent == root / "12345_demo" / "shots" / "sh010" / "comfy" / "comp" / "v001"

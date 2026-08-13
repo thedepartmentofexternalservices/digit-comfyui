@@ -460,12 +460,15 @@ def folder_task_name(folder):
 
 
 def file_stem(project, shot, task, filename=""):
-    """Typed filename wins; empty falls back to PREFIX_SHOT_TASK."""
+    """Build a filename stem that always starts with the project's job number."""
+    prefix = str(project)[:5]
     text = str(filename or "").strip()
     if text:
-        return sanitize_filename_stem(text)
+        stem = sanitize_filename_stem(text)
+        if stem == prefix or stem.startswith(f"{prefix}_"):
+            return stem
+        return f"{prefix}_{stem}"
     task_seg = str(task or "comp").replace("\\", "/").strip("/").split("/")[-1] or "comp"
-    prefix = str(project)[:5]
     shot_seg = str(shot)
     if shot_seg.startswith(f"{prefix}_"):
         return f"{shot_seg}_{task_seg}"
