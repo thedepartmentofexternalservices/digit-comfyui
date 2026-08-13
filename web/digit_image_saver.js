@@ -45,6 +45,8 @@ app.registerExtension({
         const rootWidget = node.widgets.find(w => w.name === "projekts_root");
         const projectWidget = node.widgets.find(w => w.name === "project");
         const shotWidget = node.widgets.find(w => w.name === "shot");
+        const subfolderWidget = node.widgets.find(w => w.name === "subfolder");
+        const taskWidget = node.widgets.find(w => w.name === "task");
 
         if (!rootWidget || !projectWidget) return;
         if (isHasShotNode && !shotWidget) return;
@@ -58,6 +60,19 @@ app.registerExtension({
             serialize: false,
         });
         statusWidget.inputEl && (statusWidget.inputEl.readOnly = true);
+
+        function addPick(sourceWidget, name) {
+            if (!sourceWidget) return null;
+            const pick = node.addWidget("combo", name, sourceWidget.value || "", (value) => {
+                sourceWidget.value = value;
+                node.setDirtyCanvas(true);
+                if (sourceWidget.callback) sourceWidget.callback(value);
+            }, { values: [sourceWidget.value || ""], serialize: false });
+            return pick;
+        }
+
+        const subfolderPick = isHasShotNode ? addPick(subfolderWidget, "subfolder_pick") : null;
+        const taskPick = isHasShotNode ? addPick(taskWidget, "task_pick") : null;
 
         const onExecuted = node.onExecuted;
         node.onExecuted = function(data) {
@@ -161,6 +176,50 @@ app.registerExtension({
             return "";
         }
 
+        async function refreshSubfolders(gen) {
+            if (!subfolderWidget || !shotWidget) return;
+            const root = rootWidget.value;
+            const project = projectWidget.value;
+            const shot = shotWidget.value;
+            if (!root || !isUsableName(project) || !isUsableName(shot)) return;
+            const items = await fetchJson(
+                `/digit/subfolders?root=${encodeURIComponent(root)}&project=${encodeURIComponent(project)}&shot=${encodeURIComponent(shot)}`
+            );
+            if (gen !== refreshGen) return;
+            const target = subfolderPick || (subfolderWidget && subfolderWidget.options ? subfolderWidget : null);
+            if (target) keepValueInOptions(target, isSentinelList(items) ? [] : items);
+        }
+
+        async function refreshTasks(gen) {
+            if (!taskWidget || !shotWidget || !subfolderWidget) return;
+            const root = rootWidget.value;
+            const project = projectWidget.value;
+            const shot = shotWidget.value;
+            const subfolder = subfolderWidget.value;
+            if (!root || !isUsableName(project) || !isUsableName(shot) || !isUsableName(subfolder)) return;
+            const items = await fetchJson(
+                `/digit/tasks?root=${encodeURIComponent(root)}&project=${encodeURIComponent(project)}&shot=${encodeURIComponent(shot)}&subfolder=${encodeURIComponent(subfolder)}`
+            );
+            if (gen !== refreshGen) return;
+            const target = taskPick || (taskWidget && taskWidget.options ? taskWidget : null);
+            if (target) keepValueInOptions(target, isSentinelList(items) ? [] : items);
+        }
+
+        async function refreshHealth(gen) {
+            try {
+                const resp = await api.fetchApi("/digit/health");
+                if (gen !== refreshGen) return null;
+                const payload = await resp.json();
+                if (!payload || !payload.ok) {
+                    return "PROJEKTS storage degraded. Refresh to retry.";
+                }
+                const count = (payload.roots || []).reduce((sum, item) => sum + (item.project_count || 0), 0);
+                return `PROJEKTS OK — ${count} project${count === 1 ? "" : "s"}`;
+            } catch (_err) {
+                return null;
+            }
+        }
+
         async function refreshAll() {
             const gen = ++refreshGen;
             try {
@@ -172,8 +231,14 @@ app.registerExtension({
                 if (isHasShotNode) {
                     shotWarning = await refreshShots(gen);
                     if (gen !== refreshGen) return;
+                    await refreshSubfolders(gen);
+                    if (gen !== refreshGen) return;
+                    await refreshTasks(gen);
+                    if (gen !== refreshGen) return;
                 }
-                setStatus(shotWarning || projectWarning);
+                const health = await refreshHealth(gen);
+                if (gen !== refreshGen) return;
+                setStatus(shotWarning || projectWarning || health || "");
                 clearRetry();
             } catch (err) {
                 if (gen !== refreshGen) return;
@@ -209,12 +274,50 @@ app.registerExtension({
             clearRetry();
             const gen = ++refreshGen;
             try {
-                setStatus(await refreshShots(gen));
+                const warning = await refreshShots(gen);
+                if (gen !== refreshGen) return;
+                await refreshSubfolders(gen);
+                if (gen !== refreshGen) return;
+                await refreshTasks(gen);
+                if (gen !== refreshGen) return;
+                setStatus(warning);
             } catch (err) {
                 if (gen !== refreshGen) return;
                 scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
             }
         };
+
+        if (shotWidget) {
+            const origShotCallback = shotWidget.callback;
+            shotWidget.callback = async function(value) {
+                if (origShotCallback) origShotCallback.call(this, value);
+                clearRetry();
+                const gen = ++refreshGen;
+                try {
+                    await refreshSubfolders(gen);
+                    if (gen !== refreshGen) return;
+                    await refreshTasks(gen);
+                } catch (err) {
+                    if (gen !== refreshGen) return;
+                    scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
+                }
+            };
+        }
+
+        if (subfolderWidget) {
+            const origSubfolderCallback = subfolderWidget.callback;
+            subfolderWidget.callback = async function(value) {
+                if (origSubfolderCallback) origSubfolderCallback.call(this, value);
+                clearRetry();
+                const gen = ++refreshGen;
+                try {
+                    await refreshTasks(gen);
+                } catch (err) {
+                    if (gen !== refreshGen) return;
+                    scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
+                }
+            };
+        }
 
         node.addWidget("button", "refresh_projekts", "Refresh PROJEKTS", () => {
             clearRetry();

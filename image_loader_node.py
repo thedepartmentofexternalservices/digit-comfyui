@@ -121,7 +121,9 @@ class DigitImageLoader:
                 "shot": (shots,),
                 "subfolder": ("STRING", {"default": "comfy"}),
                 "task": ("STRING", {"default": "comp"}),
-                "format": (["png", "jpg", "exr"],),
+                "format": (["png", "jpg", "exr", "tif", "tiff", "webp"],),
+                "frame_mode": (["latest", "pinned"], {"default": "latest", "tooltip": "latest loads the highest frame number; pinned loads the exact frame widget."}),
+                "frame": ("INT", {"default": 1001, "min": 0, "max": 99999999, "step": 1}),
                 "on_missing": (["error", "blank"], {"default": "error", "tooltip": "error raises when no frame is found; blank returns a 1x1 black image."}),
             },
             "optional": {
@@ -141,7 +143,8 @@ class DigitImageLoader:
         return float("nan")
 
     def load_latest(self, projekts_root, project, shot, subfolder, task, format,
-                    browse_path=None, upload_image=None, filepath=None, on_missing="error"):
+                    browse_path=None, upload_image=None, filepath=None,
+                    on_missing="error", frame_mode="latest", frame=1001):
         import torch
 
         # Priority 0: browse_path — absolute filesystem path typed by the user
@@ -199,7 +202,12 @@ class DigitImageLoader:
         target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
         prefix = project[:5]
 
-        found_path, frame_num = self._find_latest(target_dir, prefix, shot, task, format)
+        if frame_mode == "pinned":
+            found_path, frame_num = self._find_frame(
+                target_dir, prefix, shot, task, format, frame
+            )
+        else:
+            found_path, frame_num = self._find_latest(target_dir, prefix, shot, task, format)
 
         if found_path is None:
             msg = f"(no frames found) in {target_dir}"
@@ -250,6 +258,21 @@ class DigitImageLoader:
         if best_file is None:
             return None, 0
         return os.path.join(target_dir, best_file), best_frame
+
+    def _find_frame(self, target_dir, prefix, shot, task, ext, frame):
+        """Return (filepath, frame) for an exact frame number, or (None, 0)."""
+        if not os.path.isdir(target_dir):
+            return None, 0
+        filename = f"{prefix}_{shot}_{task}.{int(frame):d}.{ext}"
+        # Also accept zero-padded names up to 8 digits.
+        candidates = [filename]
+        for pad in (4, 5, 6, 8):
+            candidates.append(f"{prefix}_{shot}_{task}.{int(frame):0{pad}d}.{ext}")
+        for name in candidates:
+            path = os.path.join(target_dir, name)
+            if os.path.isfile(path):
+                return path, int(frame)
+        return None, 0
 
     def _load_image(self, filepath, format):
         import torch

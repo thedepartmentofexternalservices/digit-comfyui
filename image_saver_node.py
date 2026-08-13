@@ -8,8 +8,8 @@ import folder_paths
 import numpy as np
 
 logger = logging.getLogger("DigitImageSaver")
-from PIL import Image, PngImagePlugin
 from aiohttp import web
+from PIL import Image, PngImagePlugin
 from server import PromptServer
 
 from .projekts_utils import (
@@ -21,6 +21,7 @@ from .projekts_utils import (
     is_within_roots,
     next_frame,
     resolve_pipeline_dir,
+    scan_child_folders,
     scan_projects,
     scan_shots,
 )
@@ -101,6 +102,31 @@ def _comfyui_version():
 async def get_health(request):
     payload = health_payload(_pack_version(), _comfyui_version())
     return web.json_response(payload, status=200 if payload["ok"] else 503)
+
+
+@PromptServer.instance.routes.get("/digit/subfolders")
+async def get_subfolders(request):
+    root = _constrained_root(request.rel_url.query.get("root", ""))
+    if not root:
+        return web.json_response([], status=403)
+    project = request.rel_url.query.get("project", "")
+    shot = request.rel_url.query.get("shot", "")
+    if not project or not shot:
+        return web.json_response([""], status=400)
+    return _json_scan(scan_child_folders(root, project, shot))
+
+
+@PromptServer.instance.routes.get("/digit/tasks")
+async def get_tasks(request):
+    root = _constrained_root(request.rel_url.query.get("root", ""))
+    if not root:
+        return web.json_response([], status=403)
+    project = request.rel_url.query.get("project", "")
+    shot = request.rel_url.query.get("shot", "")
+    subfolder = request.rel_url.query.get("subfolder", "")
+    if not project or not shot or not subfolder:
+        return web.json_response([""], status=400)
+    return _json_scan(scan_child_folders(root, project, shot, subfolder))
 
 
 class DigitImageSaver:

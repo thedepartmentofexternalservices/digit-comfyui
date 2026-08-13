@@ -99,6 +99,41 @@ def test_image_loader_rejects_browse_path_outside_roots(tmp_path, monkeypatch):
         )
 
 
+def test_image_loader_blank_on_missing_frames(tmp_path):
+    root = _tree(tmp_path)
+    loader = image_loader_node.DigitImageLoader()
+    result = loader.load_latest(
+        str(root), "12345_demo", "sh010", "comfy", "comp", "png",
+        on_missing="blank",
+    )
+    assert result["result"][1] == ""
+    assert result["result"][2] == 0
+
+
+def test_image_loader_picks_latest_and_pinned_frame(tmp_path):
+    from PIL import Image
+
+    root = _tree(tmp_path)
+    target = root / "12345_demo" / "shots" / "sh010" / "comfy" / "comp"
+    target.mkdir(parents=True)
+    for frame in (1001, 1003):
+        Image.new("RGB", (2, 2), color=(frame % 255, 0, 0)).save(
+            target / f"12345_sh010_comp.{frame:04d}.png"
+        )
+    loader = image_loader_node.DigitImageLoader()
+    latest = loader.load_latest(
+        str(root), "12345_demo", "sh010", "comfy", "comp", "png",
+    )
+    assert latest["result"][2] == 1003
+    assert latest["result"][1].endswith("12345_sh010_comp.1003.png")
+    pinned = loader.load_latest(
+        str(root), "12345_demo", "sh010", "comfy", "comp", "png",
+        frame_mode="pinned", frame=1001,
+    )
+    assert pinned["result"][2] == 1001
+    assert pinned["result"][1].endswith("12345_sh010_comp.1001.png")
+
+
 def test_image_loader_errors_on_missing_frames(tmp_path):
     root = _tree(tmp_path)
     loader = image_loader_node.DigitImageLoader()
