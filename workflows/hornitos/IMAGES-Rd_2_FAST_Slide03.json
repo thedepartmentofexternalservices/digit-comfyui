@@ -1,0 +1,692 @@
+{
+  "id": "df7c590e-0839-45c3-b33e-8a6967e2a57f",
+  "revision": 0,
+  "last_node_id": 12,
+  "last_link_id": 13,
+  "nodes": [
+    {
+      "id": 5,
+      "type": "LoadImage",
+      "pos": [
+        6306.078928256722,
+        850.8288087153903
+      ],
+      "size": [
+        339.34375,
+        376.796875
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            1
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.15.1",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "Slide 03 REF.png",
+        "image"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "DigitImageSaver",
+      "pos": [
+        7726.9983804321655,
+        879.2472057810648
+      ],
+      "size": [
+        324,
+        716
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "link": 6
+        },
+        {
+          "localized_name": "projekts_root",
+          "name": "projekts_root",
+          "type": "COMBO",
+          "widget": {
+            "name": "projekts_root"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "project",
+          "name": "project",
+          "type": "COMBO",
+          "widget": {
+            "name": "project"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "shot",
+          "name": "shot",
+          "type": "COMBO",
+          "widget": {
+            "name": "shot"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "subfolder",
+          "name": "subfolder",
+          "type": "STRING",
+          "widget": {
+            "name": "subfolder"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "task",
+          "name": "task",
+          "type": "STRING",
+          "widget": {
+            "name": "task"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "format",
+          "name": "format",
+          "type": "COMBO",
+          "widget": {
+            "name": "format"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "tonemap",
+          "name": "tonemap",
+          "type": "COMBO",
+          "widget": {
+            "name": "tonemap"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "quality",
+          "name": "quality",
+          "type": "INT",
+          "widget": {
+            "name": "quality"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "start_frame",
+          "name": "start_frame",
+          "type": "INT",
+          "widget": {
+            "name": "start_frame"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "frame_pad",
+          "name": "frame_pad",
+          "type": "INT",
+          "widget": {
+            "name": "frame_pad"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "show_preview",
+          "name": "show_preview",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "show_preview"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "save_workflow",
+          "name": "save_workflow",
+          "type": "COMBO",
+          "widget": {
+            "name": "save_workflow"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "filepath",
+          "name": "filepath",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-digit",
+        "ver": "6afeac6f94c6d3e9c35544c1672c44c99341a62b",
+        "Node name for S&R": "DigitImageSaver"
+      },
+      "widgets_values": [
+        "/mnt/lucid/PROJEKTS",
+        "26082_hornitos_evergreen_2026",
+        "03_POST_THREE",
+        "comfy",
+        "Slide 03",
+        "png",
+        "linear",
+        100,
+        1001,
+        4,
+        true,
+        "ui",
+        "/mnt/lucid/PROJEKTS/26082_hornitos_evergreen_2026/shots/03_POST_THREE/comfy/Slide 03/26082_03_POST_THREE_Slide 03.1011.png"
+      ]
+    },
+    {
+      "id": 1,
+      "type": "DigitSeedreamImage",
+      "pos": [
+        7177.103296723787,
+        860.7752208574847
+      ],
+      "size": [
+        480,
+        663
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image1",
+          "name": "image1",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 1
+        },
+        {
+          "localized_name": "image2",
+          "name": "image2",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 4
+        },
+        {
+          "localized_name": "image3",
+          "name": "image3",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 5
+        },
+        {
+          "localized_name": "image4",
+          "name": "image4",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 3
+        },
+        {
+          "localized_name": "image5",
+          "name": "image5",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "image6",
+          "name": "image6",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "image7",
+          "name": "image7",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "image8",
+          "name": "image8",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "image9",
+          "name": "image9",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "image10",
+          "name": "image10",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "prompt",
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "COMBO",
+          "widget": {
+            "name": "model"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "image_size",
+          "name": "image_size",
+          "type": "COMBO",
+          "widget": {
+            "name": "image_size"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "output_format",
+          "name": "output_format",
+          "type": "COMBO",
+          "widget": {
+            "name": "output_format"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "num_images",
+          "name": "num_images",
+          "type": "INT",
+          "widget": {
+            "name": "num_images"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "enable_safety_checker",
+          "name": "enable_safety_checker",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "enable_safety_checker"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "seed",
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "max_images",
+          "name": "max_images",
+          "shape": 7,
+          "type": "INT",
+          "widget": {
+            "name": "max_images"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "custom_width",
+          "name": "custom_width",
+          "shape": 7,
+          "type": "INT",
+          "widget": {
+            "name": "custom_width"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "custom_height",
+          "name": "custom_height",
+          "shape": 7,
+          "type": "INT",
+          "widget": {
+            "name": "custom_height"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "batch_count",
+          "name": "batch_count",
+          "shape": 7,
+          "type": "INT",
+          "widget": {
+            "name": "batch_count"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            6
+          ]
+        },
+        {
+          "localized_name": "text",
+          "name": "text",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-digit",
+        "ver": "3f3530cdc4f1e732a4379c5a118ebce8259891ac",
+        "Node name for S&R": "Seedream FAST \u2014 Slide 03"
+      },
+      "widgets_values": [
+        "Recreate this scene from image 1, keeping the four players' poses, faces, expressions, wardrobe, the card fan, the spoons, and the glasses exactly as they are. Do NOT change the people, their positions, or anything they're holding.\n\nCRITICAL \u2014 LIGHTING OVERRIDE: Image 1's current lighting is too close to the original reference and reads flat and indoor-dim \u2014 do NOT simply reproduce it. Completely relight this scene as bright, warm, golden sun-kissed light, as if strong late-afternoon sun is pouring in through a window just out of frame. Intensify and expand the warm sunbeam already visible on the rug in the lower right so it glows brighter and spreads further, catching the edges of the rug's texture. Let that same warm golden light rake across the group \u2014 glowing highlights on their skin, hair, the glasses, and the bottle, with soft warm shadows. Push the whole image warmer, brighter, and more luminous than the original \u2014 the difference must be obvious, not subtle. Bright and airy, not dim or flat, while staying a believable indoor sunlit room.\n\nCRITICAL \u2014 BOTTLE LABEL: The label is currently degrading and inaccurate \u2014 treat this as a top priority. Use image 2 (front bottle) and image 3 (label close-up) to render the label sharp, clean, and fully accurate: the green diamond-shaped label with the white \"HORNITOS\" wordmark and \"REPOSADO\" text, correctly shaped, correctly colored, and legible \u2014 not garbled, warped, smudged, or soft. This is a hero in-focus product detail, not a background element.\n\nCARPET: Keep the modern textured rug \u2014 a rich moss-green tufted wool rug with a looped-and-cut geometric ridge pattern in nested rectangular bands, deep varied pile texture. The focus stays on the people and drinks, not the carpet.\n\nSTYLE: Bright, vibrant, premium Hornitos lifestyle photography \u2014 warm, golden, airy, sun-drenched, elevated but authentic and candid. Clean filmic grade, warm skin tones, punchy natural contrast, subtle grain.\n\nAVOID: reproducing the original's flat or dim lighting; a subtle or barely-noticeable lighting change; garbled, warped, smudged, or soft bottle label; incorrect label shape or color; changing any player's face, expression, pose, or wardrobe; changing the card fan, spoons, or glasses; over-emphasizing the carpet; blown-out highlights; changing the composition.",
+        "seedream-5.0-pro",
+        "auto_2K",
+        "png",
+        1,
+        true,
+        0,
+        "randomize",
+        1,
+        2048,
+        2048,
+        1
+      ],
+      "title": "Seedream FAST \u2014 Slide 03"
+    },
+    {
+      "id": 3,
+      "type": "LoadImage",
+      "pos": [
+        6289.027164770182,
+        1370.885756335069
+      ],
+      "size": [
+        339.34375,
+        376.796875
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            4,
+            9
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.15.1",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "Reposado Front - In Scene - REF.png",
+        "image"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "LoadImage",
+      "pos": [
+        6666.992994322636,
+        1376.5694823634904
+      ],
+      "size": [
+        339.34375,
+        376.796875
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            5,
+            10
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.15.1",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "Reposado Label - In Scene - REF.png",
+        "image"
+      ]
+    },
+    {
+      "id": 6,
+      "type": "LoadImage",
+      "pos": [
+        6703.936844921389,
+        856.5124642788437
+      ],
+      "size": [
+        339.34375,
+        376.796875
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            3,
+            11
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.15.1",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "Carpet Ref.png",
+        "image"
+      ]
+    }
+  ],
+  "links": [
+    [
+      1,
+      5,
+      0,
+      1,
+      0,
+      "IMAGE"
+    ],
+    [
+      3,
+      6,
+      0,
+      1,
+      3,
+      "IMAGE"
+    ],
+    [
+      4,
+      3,
+      0,
+      1,
+      1,
+      "IMAGE"
+    ],
+    [
+      5,
+      4,
+      0,
+      1,
+      2,
+      "IMAGE"
+    ],
+    [
+      6,
+      1,
+      0,
+      2,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "workflowRendererVersion": "Vue",
+    "ds": {
+      "scale": 0.7037690588138567,
+      "offset": [
+        -6075.889953761702,
+        -775.0463365826959
+      ],
+      "title": "IMAGES-Rd_2 FAST \u2014 Slide 03"
+    }
+  },
+  "version": 0.4
+}
