@@ -27,7 +27,7 @@ This means:
 | Family | Nodes |
 |--------|-------|
 | **Image generation** | [Gemini Image](#digit-gemini-image) · [GPT Image](#digit-gpt-image) · [Seedream Image](#digit-seedream-image) · [Batch Gemini Image](#digit-batch-gemini-image) |
-| **Video generation** | [Veo Video](#digit-veo-video) · [Gemini Omni Video](#digit-gemini-omni-video) · [Seedance Video](#digit-seedance-video) · [Seedance Video (Replicate)](#digit-seedance-video) [deprecated] · [MU Seedance 2 Character](#digit-mu-seedance-2-character) |
+| **Video generation** | [Veo Video](#digit-veo-video) · [Gemini Omni Video](#digit-gemini-omni-video) · [Seedance Video](#digit-seedance-video) · [MiniMax Video](#digit-minimax-video) · [Seedance Video (Replicate)](#digit-seedance-video) [deprecated] · [MU Seedance 2 Character](#digit-mu-seedance-2-character) |
 | **LLM & prompts** | [LLM Query](#digit-llm-query) · [Random Prompt](#digit-random-prompt) · [Prompt Combine](#digit-prompt-combine) · [Text Encode](#digit-text-encode) |
 | **Subtitles / SRT** | [SRT Maker](#digit-srt-maker) · [SRT From Video](#digit-srt-from-video) · [Batch SRT From Video](#digit-batch-srt-from-video) · [SRT Tools](#digit-srt-tools) · [SRT Preview](#digit-srt-preview) |
 | **Pipeline I/O** | [Image Saver](#digit-image-saver) · [Video Saver](#digit-video-saver) · [Image Loader](#digit-image-loader) · [Drag Crop](#digit-drag-crop) · [Crop Info](#digit-crop-info) |
@@ -203,6 +203,72 @@ Replicate is cheaper than MUAPI at 1080p/4K — but only MUAPI passes people thr
 **Other inputs:** `duration` (4-15s on 2.0, 4-30s on 2.5, `auto`, or `same_as_input` which probes the first connected source/reference video). Video edit inherits the source length — use `same_as_input` or `auto`. MUAPI still needs a number except on video edit. `aspect_ratio`, `generate_audio`, `bitrate_mode` (2.0 fal + muapi), `batch_count` (1-8, submits all before polling), `seed` (fal + replicate; MUAPI Seedance 2.5 also accepts seed), `negative_prompt` (replicate only), `video_task` (`auto` / `edit` / `extend` when `source_video` is connected).
 
 **Outputs:** `video` (first clip), `video_paths` (all clips, feed to Video Saver), `status` (provider, route, cost, per-job request IDs).
+
+---
+
+### DIGIT MiniMax Video
+
+Generate videos with MiniMax H3 (Hailuo 03) through fal or MUAPI — one node, one `provider` dropdown. Mode auto-detects from connected inputs, same as Seedance:
+
+- **Nothing connected** → text-to-video
+- **first_frame connected** → image-to-video
+- **first_frame + last_frame** → first/last-frame interpolation
+- **reference inputs connected** → reference-to-video (up to 9 images, 3 videos, 3 audio; cite them in the prompt as `Image 1`, `Video 1`, `Audio 1`)
+
+H3 outputs native stereo audio on every generation. There is no separate `generate_audio` toggle.
+
+**Providers:**
+
+| Provider | Env var | Notes |
+|----------|---------|-------|
+| `fal` (default) | `FAL_KEY` | `minimax/h3/*` endpoints. Supports 768P, 2K, and 4K. Optional `enable_prompt_expansion` and `enable_safety_checker`. |
+| `muapi` | `MUAPIAPP_API_KEY` | `minimax-h3-*` endpoints. **2K only** today. Offline pricing fallback in `h3_pricing.py`. |
+| `replicate` | `REPLICATE_API_TOKEN` | Hidden until `REPLICATE_MODEL` is set in `h3_models.py`. |
+
+**Example workflow:** [`workflows/minimax_h3_t2v.json`](workflows/minimax_h3_t2v.json)
+
+**Smoke test:** `python scripts/manual/h3_smoke.py --provider fal` (validates env, inputs, and live pricing without ComfyUI).
+
+**Live endpoint test (fal + MUAPI):** exercises T2V, I2V, and R2V with a generated test image against real APIs:
+
+```bash
+export FAL_KEY=...
+export MUAPIAPP_API_KEY=...
+python scripts/manual/h3_integration_test.py
+
+# Save MP4s locally, fal only, skip R2V:
+python scripts/manual/h3_integration_test.py --provider fal --modes text_to_video,image_to_video --output-dir /tmp/h3-live
+```
+
+Pytest equivalent (skipped in CI by default; needs keys):
+
+```bash
+pytest -m integration tests/test_h3_integration_live.py -v --override-ini "addopts="
+```
+
+**Architecture:** validation and payload builders live in [`h3_payloads.py`](h3_payloads.py); provider I/O in [`h3_backends.py`](h3_backends.py); shared download/retry helpers in [`digit_video_common.py`](digit_video_common.py).
+
+**Troubleshooting:**
+
+| Error | Fix |
+|-------|-----|
+| `FAL_KEY environment variable is not set` | Export `FAL_KEY` before starting ComfyUI. |
+| `MUAPI supports 2K only` | Set resolution to `2K` when using muapi. |
+| `Reference-to-video requires at least one reference_image or reference_video` | Connect a reference image or video; audio alone is not enough. |
+| `Refusing to download from untrusted URL host` | Provider returned an unexpected CDN URL; open an issue with the request ID from status. |
+| `Duration must be between 4 and 15` | Pick a duration in the supported range. |
+
+**Resolution:** `768P`, `2K`, `4K` on fal; MUAPI accepts `2K` only.
+
+**Duration:** 4–15 seconds (integer). Billed per second on fal ($0.26/s at 2K per fal's published rate).
+
+**Aspect ratio:** Fixed ratios for text-to-video (`adaptive` rejected). Image-to-video and first/last-frame follow the source image. Reference mode supports `adaptive`.
+
+**Other inputs:** `batch_count` (1–8), `enable_prompt_expansion` (fal only), `enable_safety_checker` (fal only). No `seed` input — fal and MUAPI H3 APIs do not expose seed control.
+
+**Live cost strip:** updates as you change provider, resolution, duration, or batch count. fal uses the static price table in `h3_pricing.py`; muapi proxies its live estimate-cost endpoint.
+
+**Outputs:** `video` (first clip), `video_paths` (all clips), `status` (provider, route, cost, per-job request IDs).
 
 ---
 

@@ -59,6 +59,58 @@ def test_price_seedance_muapi():
     assert row["cost"] == pytest.approx(0.4)
 
 
+def test_price_h3_fal_batch():
+    row = pricing.price_node(
+        "DigitH3Video",
+        {
+            "provider": "fal",
+            "resolution": "2K",
+            "duration": "5",
+            "batch_count": 2,
+        },
+    )
+    assert row is not None
+    assert row["provider"] == "FAL.ai"
+    assert row["tool"] == "MiniMax (FAL)"
+    assert row["cost"] == pytest.approx(0.26 * 5 * 2)
+
+
+def test_price_h3_replicate_unpriced():
+    assert pricing.price_node(
+        "DigitH3Video",
+        {"provider": "replicate", "resolution": "2K", "duration": "5", "batch_count": 1},
+    ) is None
+
+
+def test_detect_h3_mode_reference():
+    assert pricing.detect_h3_mode({"reference_image1": ["1", 0]}) == "reference_to_video"
+
+
+def test_price_execution_h3_node():
+    history = {
+        "prompt": [
+            1,
+            "prompt-h3",
+            {
+                "30": {
+                    "class_type": "DigitH3Video",
+                    "inputs": {
+                        "provider": "fal",
+                        "resolution": "2K",
+                        "duration": "5",
+                        "batch_count": 1,
+                    },
+                },
+            },
+        ],
+        "outputs": {},
+    }
+    rows = pricing.price_execution(history)
+    assert len(rows) == 1
+    assert rows[0]["class_type"] == "DigitH3Video"
+    assert rows[0]["cost"] == pytest.approx(1.30)
+
+
 def test_price_veo():
     row = pricing.price_node("DigitVeoVideo", {"duration_seconds": 8})
     assert row["cost"] == pytest.approx(0.48)

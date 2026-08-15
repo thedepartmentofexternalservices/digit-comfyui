@@ -77,16 +77,18 @@ def test_legacy_alias_preserves_widget_surface(alias, widget_key, expected_value
     assert default == expected_value
 
 
-def test_digit_replicate_seedance_forwards_to_replicate(mocker):
+def test_digit_replicate_seedance_forwards_to_replicate(monkeypatch):
     from digit_loader import load_digit_module
 
     seedance = load_digit_module("seedance_video_node")
     cls = seedance.DigitReplicateSeedance
-    spy = mocker.patch.object(
-        seedance.DigitDanceVideo,
-        "generate",
-        return_value=({"ui": {}},),
-    )
+    calls = []
+
+    def fake_generate(self, **kwargs):
+        calls.append(kwargs)
+        return ({"ui": {}},)
+
+    monkeypatch.setattr(seedance.DigitDanceVideo, "generate", fake_generate)
     cls().generate(
         prompt="test",
         resolution="720p",
@@ -95,9 +97,9 @@ def test_digit_replicate_seedance_forwards_to_replicate(mocker):
         generate_audio=True,
         seed=42,
     )
-    spy.assert_called_once()
-    assert spy.call_args.kwargs["provider"] == "replicate"
-    assert spy.call_args.kwargs["model"] == "seedance-2.0"
+    assert len(calls) == 1
+    assert calls[0]["provider"] == "replicate"
+    assert calls[0]["model"] == "seedance-2.0"
 
 
 def test_digit_dance_video_exposes_25_edit_and_same_as_input():

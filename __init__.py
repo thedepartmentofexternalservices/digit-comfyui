@@ -36,6 +36,7 @@ from .elevenlabs_nodes import (
     DigitElevenLabsDialogue,
 )
 from .seedance_video_node import DigitDanceVideo, DigitReplicateSeedance
+from .h3_video_node import DigitH3Video
 from .mu_seedance_character_node import DigitMuSeedanceCharacter
 from .shade_nodes import ShadeMount, ShadeSave
 from .drift_gate_node import DigitDriftGate, DigitDriftGateFromPaths
@@ -90,6 +91,7 @@ NODE_CLASS_MAPPINGS = {
     "DigitElevenLabsDialogue": DigitElevenLabsDialogue,
     "DigitDanceVideo": DigitDanceVideo,
     "DigitReplicateSeedance": DigitReplicateSeedance,
+    "DigitH3Video": DigitH3Video,
     "DigitMuSeedanceCharacter": DigitMuSeedanceCharacter,
     # Shade.inc nodes
     "ShadeMount": ShadeMount,
@@ -148,6 +150,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DigitElevenLabsDialogue": "DIGIT ElevenLabs Dialogue",
     "DigitDanceVideo": "DIGIT Seedance Video",
     "DigitReplicateSeedance": "DIGIT Seedance Video (Replicate) [deprecated]",
+    "DigitH3Video": "DIGIT MiniMax Video",
     "DigitMuSeedanceCharacter": "DIGIT MU Seedance 2 Character",
     # Shade.inc nodes
     "ShadeMount": "Shade Mount",
