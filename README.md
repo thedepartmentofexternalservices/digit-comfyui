@@ -22,12 +22,12 @@ This means:
 
 ## The Nodes
 
-**53 nodes** registered in v4.0.1 (including 1 deprecated alias). All appear under the **DIGIT** category unless noted.
+**54 nodes** registered in v4.0.1 (including 1 deprecated alias). All appear under the **DIGIT** category unless noted.
 
 | Family | Nodes |
 |--------|-------|
 | **Image generation** | [Gemini Image](#digit-gemini-image) · [GPT Image](#digit-gpt-image) · [Seedream Image](#digit-seedream-image) · [Batch Gemini Image](#digit-batch-gemini-image) |
-| **Video generation** | [Veo Video](#digit-veo-video) · [Gemini Omni Video](#digit-gemini-omni-video) · [Seedance Video](#digit-seedance-video) · [Seedance Video (Replicate)](#digit-seedance-video) [deprecated] · [MU Seedance 2 Character](#digit-mu-seedance-2-character) |
+| **Video generation** | [Veo Video](#digit-veo-video) · [Gemini Omni Video](#digit-gemini-omni-video) · [Seedance Video](#digit-seedance-video) · [Seedance Video (Replicate)](#digit-seedance-video) [deprecated] · [MiniMax Video](#digit-minimax-video) · [MU Seedance 2 Character](#digit-mu-seedance-2-character) |
 | **LLM & prompts** | [LLM Query](#digit-llm-query) · [Random Prompt](#digit-random-prompt) · [Prompt Combine](#digit-prompt-combine) · [Text Encode](#digit-text-encode) |
 | **Subtitles / SRT** | [SRT Maker](#digit-srt-maker) · [SRT From Video](#digit-srt-from-video) · [Batch SRT From Video](#digit-batch-srt-from-video) · [SRT Tools](#digit-srt-tools) · [SRT Preview](#digit-srt-preview) |
 | **Pipeline I/O** | [Uber Saver](#digit-uber-saver) · [Image Saver](#digit-image-saver) · [Video Saver](#digit-video-saver) · [Image Loader](#digit-image-loader) · [Drag Crop](#digit-drag-crop) · [Crop Info](#digit-crop-info) |
@@ -196,6 +196,41 @@ Replicate is cheaper than MUAPI at 1080p/4K — but only MUAPI passes people thr
 **Other inputs:** `duration` (4-15s or `auto`; MUAPI requires a number), `aspect_ratio`, `generate_audio`, `bitrate_mode` (fal + muapi), `batch_count` (1-8, submits all before polling), `seed` (fal + replicate; MUAPI has no seed input), `negative_prompt` (replicate only).
 
 **Outputs:** `video` (first clip), `video_paths` (all clips, feed to Video Saver), `status` (provider, route, cost, per-job request IDs).
+
+---
+
+### DIGIT MiniMax Video
+
+Generate videos with MiniMax H3 through fal or MUAPI — one node, one `provider` dropdown. Mode auto-detects from connected inputs, same as Seedance:
+
+- **Nothing connected** → text-to-video
+- **first_frame connected** → image-to-video
+- **first_frame + last_frame** → first/last-frame interpolation
+- **reference inputs connected** → reference-to-video (up to 9 images, 3 videos, 3 audio; cite them in the prompt as `Image 1`, `Video 1`, `Audio 1`)
+
+H3 always writes native stereo audio. There is no `generate_audio` toggle.
+
+**Providers:**
+
+| Provider | Env var | Content filtering | Notes |
+|----------|---------|-------------------|-------|
+| `fal` (default) | `FAL_KEY` | Strict — blocks real people and likenesses | Fastest queue. Resolutions: 480P, 768P (native), 2K, 4K (upscale a 768P base). |
+| `muapi` | `MUAPIAPP_API_KEY` | Low/reduced — people OK | Hosted H3 is **2K only**. Pick fal for 480P/768P/4K. |
+
+**Live cost strip:** the node shows a two-line estimate at the bottom that updates as you change provider, resolution, duration, or batch count. fal answers from the static price table; muapi proxies its live estimate-cost endpoint with a $0.1825/s fallback. After a run, the status output records the `Cost:` and `Route:` lines.
+
+**Per-second price cheat sheet:**
+
+| Provider | 480P | 768P | 2K | 4K |
+|----------|------|------|----|----|
+| fal | $0.05 | $0.08 | $0.13 | $0.16 |
+| muapi | — | — | $0.1825 | — |
+
+**Other inputs:** `duration` (5–15s), `aspect_ratio` (T2V/R2V; I2V follows the first frame; `adaptive` is fal R2V, coerced to 16:9 on T2V and on muapi), `enable_prompt_expansion` and `enable_safety_checker` (fal only, both default on), `batch_count` (1–8, submits all before polling), `seed` (fal only; 0 = random per job).
+
+**Outputs:** `video` (first clip), `video_paths` (all clips, feed to Video Saver), `status` (provider, route, cost, per-job request IDs).
+
+All routing and pricing data lives in `minimax_pricing.py` — repricing is a one-file edit.
 
 ---
 
@@ -1047,7 +1082,7 @@ Major version bumps may rename or merge node classes. To keep artist workflows l
 | `google-genai` | Official Google GenAI SDK for Gemini and Veo via Vertex AI |
 | `google-auth` | GCP authentication and credential management |
 | `google-cloud-storage` | GCS bucket access for lossless Veo output |
-| `fal-client` | fal.ai API client for GPT Image, Seedream Image, and Seedance Video |
+| `fal-client` | fal.ai API client for GPT Image, Seedream Image, Seedance Video, and MiniMax Video |
 | `replicate` | Replicate API client for Seedance Video (replicate provider) |
 | `soundfile` | Audio I/O for ElevenLabs nodes |
 | `piexif` | EXIF metadata embedding in JPEG files |

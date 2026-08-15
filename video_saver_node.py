@@ -21,6 +21,7 @@ logger = logging.getLogger("DigitVideoSaver")
 BATCH_VIDEO_NODE_TYPES = frozenset({
     "DigitDanceVideo",
     "DigitReplicateSeedance",
+    "DigitMiniMaxVideo",
     "DigitVeoVideo",
     "DigitOmniVideo",
 })
@@ -34,6 +35,7 @@ BATCH_TEMP_GLOBS = {
     "replicate_seedance_": "replicate_seedance_{ts}_{uid}_*.mp4",
     "veo_": "veo_{ts}_{uid}_*.mp4",
     "omni_": "omni_{ts}_{uid}_*.mp4",
+    "minimax_": "minimax_{ts}_{uid}_*.mp4",
 }
 
 

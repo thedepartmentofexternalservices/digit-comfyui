@@ -1,7 +1,8 @@
 """Shared MUAPI client helpers for DIGIT nodes.
 
-Used by the Seedance video node (muapi provider) and the MU Seedance
-Character node. Auth comes from the MUAPIAPP_API_KEY environment variable.
+Used by the Seedance video node (muapi provider), the MiniMax H3 video node,
+and the MU Seedance Character node. Auth comes from the MUAPIAPP_API_KEY
+environment variable.
 """
 
 import io

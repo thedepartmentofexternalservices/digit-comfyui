@@ -1,8 +1,9 @@
 """Per-render cost scoring for DIGIT ComfyUI nodes.
 
 Scores executed prompt-graph nodes into broker-ready cost rows.
-Seedance rates live in seedance_pricing.py; this module adds
-provider-aware node scoring (fal / muapi / replicate), Veo, and ElevenLabs.
+Seedance rates live in seedance_pricing.py; MiniMax H3 rates live in
+minimax_pricing.py. This module adds provider-aware node scoring
+(fal / muapi / replicate), Veo, and ElevenLabs.
 """
 
 from __future__ import annotations
@@ -10,12 +11,14 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from . import seedance_pricing
+    from . import minimax_pricing, seedance_pricing
 except ImportError:  # pragma: no cover — flat import when not packaged
+    import minimax_pricing  # type: ignore
     import seedance_pricing  # type: ignore
 
 # Billable class_types. Voice selector is free; omit it.
 SEEDANCE_CLASS = "DigitDanceVideo"
+MINIMAX_CLASS = "DigitMiniMaxVideo"
 VEO_CLASS = "DigitVeoVideo"
 ELEVENLABS_TTS_CLASSES = frozenset({
     "DigitElevenLabsTTS",
@@ -45,6 +48,11 @@ PROVIDER_LABELS = {
     "muapi": ("Sea Dance (MUAPI)", "MUAPI"),
     "replicate": ("Sea Dance (Replicate)", "Replicate"),
 }
+MINIMAX_PROVIDER_LABELS = {
+    "fal": ("MiniMax H3 (FAL)", "FAL.ai"),
+    "muapi": ("MiniMax H3 (MUAPI)", "MUAPI"),
+}
+MINIMAX_DEFAULT_DURATION = 5.0
 
 
 def _is_link(value: Any) -> bool:
@@ -128,6 +136,39 @@ def price_seedance_node(inputs: dict) -> dict | None:
         "provider": provider_label,
         "class_type": SEEDANCE_CLASS,
         "model": summary.get("route") or model,
+        "batch_count": batch_count,
+    }
+
+
+def price_minimax_node(inputs: dict) -> dict | None:
+    provider = str(inputs.get("provider") or "fal").strip().lower()
+    resolution = str(inputs.get("resolution") or "2K")
+    batch_count = max(1, int(inputs.get("batch_count") or 1))
+    duration = parse_duration_seconds(inputs, default=MINIMAX_DEFAULT_DURATION)
+    mode = detect_seedance_mode(inputs)
+
+    summary = minimax_pricing.estimate(
+        provider,
+        mode,
+        resolution,
+        duration,
+        batch_count,
+        use_live=False,
+    )
+    per_clip = summary.get("per_clip")
+    if per_clip is None:
+        return None
+    total = float(per_clip) * batch_count
+    tool, provider_label = MINIMAX_PROVIDER_LABELS.get(
+        provider, (f"MiniMax H3 ({provider})", provider),
+    )
+    return {
+        "cost": round(total, 4),
+        "duration_seconds": float(duration),
+        "tool": tool,
+        "provider": provider_label,
+        "class_type": MINIMAX_CLASS,
+        "model": summary.get("route") or "minimax-h3",
         "batch_count": batch_count,
     }
 
@@ -219,6 +260,8 @@ def price_node(class_type: str, inputs: dict | None = None) -> dict | None:
 
     if class_type == SEEDANCE_CLASS:
         return price_seedance_node(inputs)
+    if class_type == MINIMAX_CLASS:
+        return price_minimax_node(inputs)
     if class_type == VEO_CLASS:
         return price_veo_node(inputs)
     if class_type.startswith("DigitElevenLabs"):
@@ -248,9 +291,9 @@ def price_execution(history: dict) -> list[dict]:
     """Score every billable node in a ComfyUI history entry.
 
     Walk the prompt graph, not ``history.outputs``. Terminal Save* nodes are
-    what land in ``outputs``; billable API nodes (Seedance, Veo, ElevenLabs)
-    are usually intermediates and would be skipped if we only keyed off
-    outputs (DIGIT-125).
+    what land in ``outputs``; billable API nodes (Seedance, MiniMax, Veo,
+    ElevenLabs) are usually intermediates and would be skipped if we only
+    keyed off outputs (DIGIT-125).
 
     Returns a list of dicts with node_id + cost fields for the broker.
     """

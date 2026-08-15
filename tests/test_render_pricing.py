@@ -126,3 +126,35 @@ def test_price_execution_scores_seedance_when_only_save_in_outputs():
 
 def test_unknown_node_returns_none():
     assert pricing.price_node("KSampler", {}) is None
+
+
+def test_price_minimax_fal_batch():
+    row = pricing.price_node(
+        "DigitMiniMaxVideo",
+        {
+            "provider": "fal",
+            "resolution": "2K",
+            "duration": "5",
+            "batch_count": 2,
+        },
+    )
+    assert row is not None
+    assert row["provider"] == "FAL.ai"
+    assert row["tool"] == "MiniMax H3 (FAL)"
+    assert row["cost"] == pytest.approx(1.3)
+
+
+def test_price_minimax_muapi():
+    row = pricing.price_node(
+        "DigitMiniMaxVideo",
+        {"provider": "muapi", "resolution": "2K", "duration": "5", "batch_count": 1},
+    )
+    assert row["provider"] == "MUAPI"
+    assert row["cost"] == pytest.approx(0.9125)
+
+
+def test_price_minimax_muapi_non_2k_unpriceable():
+    assert pricing.price_node(
+        "DigitMiniMaxVideo",
+        {"provider": "muapi", "resolution": "480P", "duration": "5", "batch_count": 1},
+    ) is None

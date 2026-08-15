@@ -24,6 +24,7 @@ _resolve_source_paths = video_saver_node._resolve_source_paths
             "dance_replicate_1783980981_fea62bf2_0_0.mp4",
             "dance_replicate_1783980981_fea62bf2_*.mp4",
         ),
+        ("minimax_1783980981_fea62bf2_0.mp4", "minimax_1783980981_fea62bf2_*.mp4"),
     ],
 )
 def test_parse_batch_timestamp(filename, expected):
@@ -65,6 +66,25 @@ def test_expand_muapi_legacy_batch_paths():
 
         expanded = _expand_digit_batch_paths(paths[0])
         assert len(expanded) == 2
+        assert set(expanded) == set(paths)
+
+
+def test_expand_minimax_batch_paths():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        names = [
+            "minimax_100_deadbeef_0.mp4",
+            "minimax_100_deadbeef_1.mp4",
+            "minimax_100_deadbeef_2.mp4",
+        ]
+        paths = []
+        for name in names:
+            path = os.path.join(temp_dir, name)
+            with open(path, "wb") as handle:
+                handle.write(b"x")
+            paths.append(path)
+
+        expanded = _expand_digit_batch_paths(paths[0])
+        assert len(expanded) == 3
         assert set(expanded) == set(paths)
 
 
