@@ -22,7 +22,10 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-mock>=3.12",
+    "pytest-cov>=5.0",
     "ruff>=0.6",
+    "aiohttp>=3.9",
+    "numpy",
 ]
 training = [
     "torch>=2.1.0",
@@ -60,3 +63,21 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"*_node.py" = ["E402"]
+"__init__.py" = ["E402", "F401"]
+"legacy_aliases.py" = ["E402", "F401"]
+
+[tool.coverage.run]
+include = [
+    "projekts_utils.py",
+    "image_saver_node.py",
+    "image_loader_node.py",
+    "video_saver_node.py",
+]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+fail_under = 60
+show_missing = true

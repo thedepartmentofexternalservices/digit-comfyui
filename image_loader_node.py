@@ -10,7 +10,15 @@ logger = logging.getLogger("DigitImageLoader")
 from PIL import Image
 from server import PromptServer
 
-from .projekts_utils import get_available_projekts_roots, is_within_roots, PROJECT_RE, FRAME_RE, scan_projects, scan_shots
+from .projekts_utils import (
+    FRAME_RE,
+    combo_choices,
+    get_available_projekts_roots,
+    is_placeholder,
+    is_within_roots,
+    resolve_pipeline_dir,
+    scan_projects,
+)
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".exr", ".tif", ".tiff", ".bmp", ".webp"}
 
@@ -101,21 +109,21 @@ class DigitImageLoader:
         except (FileNotFoundError, OSError):
             files = []
 
-        available_roots = get_available_projekts_roots()
-
+        available_roots = get_available_projekts_roots() or [""]
         first_root = available_roots[0]
-        projects = scan_projects(first_root)
-        first_project = projects[0] if projects else ""
-        shots = scan_shots(first_root, first_project)
+        projects = combo_choices(scan_projects(first_root)) if first_root else [""]
 
         return {
             "required": {
                 "projekts_root": (available_roots,),
                 "project": (projects,),
-                "shot": (shots,),
+                "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
                 "subfolder": ("STRING", {"default": "comfy"}),
                 "task": ("STRING", {"default": "comp"}),
-                "format": (["png", "jpg", "exr"],),
+                "format": (["png", "jpg", "exr", "tif", "tiff", "webp"],),
+                "frame_mode": (["latest", "pinned"], {"default": "latest", "tooltip": "latest loads the highest frame number; pinned loads the exact frame widget."}),
+                "frame": ("INT", {"default": 1001, "min": 0, "max": 99999999, "step": 1}),
+                "on_missing": (["error", "blank"], {"default": "error", "tooltip": "error raises when no frame is found; blank returns a 1x1 black image."}),
             },
             "optional": {
                 "browse_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Absolute path to an image file on the filesystem. Highest priority."}),
@@ -134,12 +142,18 @@ class DigitImageLoader:
         return float("nan")
 
     def load_latest(self, projekts_root, project, shot, subfolder, task, format,
-                    browse_path=None, upload_image=None, filepath=None):
+                    browse_path=None, upload_image=None, filepath=None,
+                    on_missing="error", frame_mode="latest", frame=1001):
         import torch
 
         # Priority 0: browse_path — absolute filesystem path typed by the user
         if browse_path and browse_path.strip():
             bp = browse_path.strip()
+            if not is_within_roots(bp):
+                logger.warning("browse_path_rejected path=%s", bp)
+                raise ValueError(
+                    f"browse_path is outside the allowed PROJEKTS roots: {bp}"
+                )
             if os.path.isfile(bp):
                 ext = os.path.splitext(bp)[1].lstrip(".")
                 m = FRAME_RE.search(os.path.basename(bp))
@@ -173,15 +187,34 @@ class DigitImageLoader:
                     "result": (img_tensor, filepath, frame_num)}
 
         # Otherwise scan the directory for the latest frame
-        prefix = project[:5]
-        target_dir = os.path.join(projekts_root, project, "shots", shot, subfolder, task)
+        if is_placeholder(project) or is_placeholder(shot):
+            msg = (
+                f"Invalid pipeline selection project={project!r} shot={shot!r}. "
+                "Refresh PROJEKTS and re-select a real project/shot."
+            )
+            if on_missing == "blank":
+                empty = np.zeros((1, 1, 3), dtype=np.float32)
+                return {"ui": {"images": [], "filepath_text": [msg]},
+                        "result": (torch.from_numpy(empty).unsqueeze(0), "", 0)}
+            raise ValueError(msg)
 
-        found_path, frame_num = self._find_latest(target_dir, prefix, shot, task, format)
+        target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
+        prefix = project[:5]
+
+        if frame_mode == "pinned":
+            found_path, frame_num = self._find_frame(
+                target_dir, prefix, shot, task, format, frame
+            )
+        else:
+            found_path, frame_num = self._find_latest(target_dir, prefix, shot, task, format)
 
         if found_path is None:
-            empty = np.zeros((1, 1, 3), dtype=np.float32)
-            return {"ui": {"images": [], "filepath_text": ["(no frames found)"]},
-                    "result": (torch.from_numpy(empty).unsqueeze(0), "", 0)}
+            msg = f"(no frames found) in {target_dir}"
+            if on_missing == "blank":
+                empty = np.zeros((1, 1, 3), dtype=np.float32)
+                return {"ui": {"images": [], "filepath_text": [msg]},
+                        "result": (torch.from_numpy(empty).unsqueeze(0), "", 0)}
+            raise FileNotFoundError(msg)
 
         img_tensor = self._load_image(found_path, format)
         preview_info = self._save_preview(img_tensor, found_path)
@@ -224,6 +257,21 @@ class DigitImageLoader:
         if best_file is None:
             return None, 0
         return os.path.join(target_dir, best_file), best_frame
+
+    def _find_frame(self, target_dir, prefix, shot, task, ext, frame):
+        """Return (filepath, frame) for an exact frame number, or (None, 0)."""
+        if not os.path.isdir(target_dir):
+            return None, 0
+        filename = f"{prefix}_{shot}_{task}.{int(frame):d}.{ext}"
+        # Also accept zero-padded names up to 8 digits.
+        candidates = [filename]
+        for pad in (4, 5, 6, 8):
+            candidates.append(f"{prefix}_{shot}_{task}.{int(frame):0{pad}d}.{ext}")
+        for name in candidates:
+            path = os.path.join(target_dir, name)
+            if os.path.isfile(path):
+                return path, int(frame)
+        return None, 0
 
     def _load_image(self, filepath, format):
         import torch

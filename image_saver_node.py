@@ -8,11 +8,25 @@ import folder_paths
 import numpy as np
 
 logger = logging.getLogger("DigitImageSaver")
-from PIL import Image, PngImagePlugin
 from aiohttp import web
+from PIL import Image, PngImagePlugin
 from server import PromptServer
 
-from .projekts_utils import get_available_projekts_roots, PROJECT_RE, FRAME_RE, scan_projects, scan_shots, next_frame
+from .projekts_utils import (
+    SENTINEL_NO_SHOTS,
+    combo_choices,
+    create_shot_dir,
+    get_available_projekts_roots,
+    health_payload,
+    is_placeholder,
+    is_storage_unavailable,
+    is_within_roots,
+    next_frame,
+    resolve_pipeline_dir,
+    scan_child_folders,
+    scan_projects,
+    scan_shots,
+)
 
 
 def sRGBtoLinear(npArray):
@@ -22,6 +36,23 @@ def sRGBtoLinear(npArray):
     return result.astype(np.float32)
 
 
+def _json_scan(items):
+    """Return a list payload; 503 when the scan hit a storage error."""
+    if is_storage_unavailable(items):
+        return web.json_response(items, status=503)
+    return web.json_response(items)
+
+
+def _constrained_root(raw_root):
+    """Return root if it is inside configured PROJEKTS roots, else empty string."""
+    if not raw_root:
+        roots = get_available_projekts_roots()
+        return roots[0] if roots else ""
+    if is_within_roots(raw_root):
+        return raw_root
+    return ""
+
+
 @PromptServer.instance.routes.get("/digit/roots")
 async def get_roots(request):
     return web.json_response(get_available_projekts_roots())
@@ -29,20 +60,110 @@ async def get_roots(request):
 
 @PromptServer.instance.routes.get("/digit/projects")
 async def get_projects(request):
-    root = request.rel_url.query.get("root", "")
+    root = _constrained_root(request.rel_url.query.get("root", ""))
     if not root:
-        roots = get_available_projekts_roots()
-        root = roots[0] if roots else ""
-    projects = scan_projects(root)
-    return web.json_response(projects)
+        return web.json_response([], status=403)
+    return _json_scan(scan_projects(root))
 
 
 @PromptServer.instance.routes.get("/digit/shots")
 async def get_shots(request):
-    root = request.rel_url.query.get("root", "")
+    root = _constrained_root(request.rel_url.query.get("root", ""))
+    if not root:
+        return web.json_response([], status=403)
     project = request.rel_url.query.get("project", "")
+    if not project:
+        return web.json_response([SENTINEL_NO_SHOTS], status=400)
+    return _json_scan(scan_shots(root, project))
+
+
+def _pack_version():
+    import subprocess
+
+    root = os.path.dirname(os.path.abspath(__file__))
+    try:
+        return subprocess.check_output(
+            ["git", "-C", root, "rev-parse", "--short", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        return "4.0.1"
+
+
+def _comfyui_version():
+    try:
+        import comfyui_version
+
+        return getattr(comfyui_version, "__version__", None) or str(comfyui_version)
+    except ImportError:
+        return None
+
+
+@PromptServer.instance.routes.get("/digit/health")
+async def get_health(request):
+    payload = health_payload(_pack_version(), _comfyui_version())
+    return web.json_response(payload, status=200 if payload["ok"] else 503)
+
+
+@PromptServer.instance.routes.get("/digit/subfolders")
+async def get_subfolders(request):
+    root = _constrained_root(request.rel_url.query.get("root", ""))
+    if not root:
+        return web.json_response([], status=403)
+    project = request.rel_url.query.get("project", "")
+    shot = request.rel_url.query.get("shot", "")
+    if not project or not shot:
+        return web.json_response([""], status=400)
+    return _json_scan(scan_child_folders(root, project, shot))
+
+
+@PromptServer.instance.routes.get("/digit/tasks")
+async def get_tasks(request):
+    root = _constrained_root(request.rel_url.query.get("root", ""))
+    if not root:
+        return web.json_response([], status=403)
+    project = request.rel_url.query.get("project", "")
+    shot = request.rel_url.query.get("shot", "")
+    subfolder = request.rel_url.query.get("subfolder", "")
+    if not project or not shot or not subfolder:
+        return web.json_response([""], status=400)
+    return _json_scan(scan_child_folders(root, project, shot, subfolder))
+
+
+@PromptServer.instance.routes.post("/digit/create_shot")
+async def create_shot(request):
+    try:
+        data = await request.json()
+    except (TypeError, ValueError):
+        return web.json_response({"error": "invalid json"}, status=400)
+    if not isinstance(data, dict):
+        return web.json_response({"error": "invalid json"}, status=400)
+    root = _constrained_root(data.get("root", ""))
+    if not root:
+        return web.json_response({"error": "root not allowed"}, status=403)
+    project = str(data.get("project", "")).strip()
+    shot = str(data.get("shot", "")).strip()
+    subfolder = data.get("subfolder") or None
+    task = data.get("task") or None
+    try:
+        created = create_shot_dir(root, project, shot, subfolder, task)
+    except FileNotFoundError as exc:
+        return web.json_response({"error": str(exc)}, status=404)
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+    except OSError as exc:
+        return web.json_response({"error": str(exc)}, status=503)
     shots = scan_shots(root, project)
-    return web.json_response(shots)
+    if is_storage_unavailable(shots):
+        return web.json_response({"error": "storage unavailable", "shots": shots}, status=503)
+    cleaned = [name for name in shots if name and not is_placeholder(name)]
+    return web.json_response({
+        "ok": True,
+        "shot": shot,
+        "path": created,
+        "shots": cleaned,
+    })
 
 
 class DigitImageSaver:
@@ -54,19 +175,16 @@ class DigitImageSaver:
 
     @classmethod
     def INPUT_TYPES(cls):
-        available_roots = get_available_projekts_roots()
-
+        available_roots = get_available_projekts_roots() or [""]
         first_root = available_roots[0]
-        projects = scan_projects(first_root)
-        first_project = projects[0] if projects else ""
-        shots = scan_shots(first_root, first_project)
+        projects = combo_choices(scan_projects(first_root)) if first_root else [""]
 
         return {
             "required": {
                 "image": ("IMAGE",),
                 "projekts_root": (available_roots,),
                 "project": (projects,),
-                "shot": (shots,),
+                "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
                 "subfolder": ("STRING", {"default": "comfy"}),
                 "task": ("STRING", {"default": "comp"}),
                 "format": (["png", "jpg", "exr"],),
@@ -96,7 +214,7 @@ class DigitImageSaver:
                    format, tonemap, quality, start_frame, frame_pad, show_preview,
                    save_workflow, prompt=None, extra_pnginfo=None):
         prefix = project[:5]
-        target_dir = os.path.join(projekts_root, project, "shots", shot, subfolder, task)
+        target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
         os.makedirs(target_dir, exist_ok=True)
 
         frame_num = next_frame(target_dir, prefix, shot, task, format, start_frame, frame_pad)

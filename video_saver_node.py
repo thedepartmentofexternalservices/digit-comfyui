@@ -7,7 +7,13 @@ import shutil
 
 import folder_paths
 
-from .projekts_utils import get_available_projekts_roots, scan_projects, scan_shots, next_frame
+from .projekts_utils import (
+    combo_choices,
+    get_available_projekts_roots,
+    next_frame,
+    resolve_pipeline_dir,
+    scan_projects,
+)
 
 logger = logging.getLogger("DigitVideoSaver")
 
@@ -137,18 +143,15 @@ class DigitVideoSaver:
 
     @classmethod
     def INPUT_TYPES(cls):
-        available_roots = get_available_projekts_roots()
-
+        available_roots = get_available_projekts_roots() or [""]
         first_root = available_roots[0]
-        projects = scan_projects(first_root)
-        first_project = projects[0] if projects else ""
-        shots = scan_shots(first_root, first_project)
+        projects = combo_choices(scan_projects(first_root)) if first_root else [""]
 
         return {
             "required": {
                 "projekts_root": (available_roots,),
                 "project": (projects,),
-                "shot": (shots,),
+                "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
                 "subfolder": ("STRING", {"default": "comfy"}),
                 "task": ("STRING", {"default": "comp"}),
                 "start_frame": ("INT", {"default": 1001, "min": 0, "max": 99999999, "step": 1}),
@@ -180,7 +183,7 @@ class DigitVideoSaver:
                    prompt=None, extra_pnginfo=None, unique_id=None):
         prefix = project[:5]
         ext = "mp4"
-        target_dir = os.path.join(projekts_root, project, "shots", shot, subfolder, task)
+        target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
         os.makedirs(target_dir, exist_ok=True)
 
         frame_num = next_frame(target_dir, prefix, shot, task, ext, start_frame, frame_pad)

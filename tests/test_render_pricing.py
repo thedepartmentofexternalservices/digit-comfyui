@@ -16,6 +16,20 @@ def test_parse_duration_auto_default():
     assert pricing.parse_duration_seconds({"duration": "auto"}, default=5) == 5.0
 
 
+def test_parse_duration_same_as_input_default():
+    assert pricing.parse_duration_seconds({"duration": "same_as_input"}, default=5) == 5.0
+
+
+def test_detect_mode_video_edit():
+    assert pricing.detect_seedance_mode({"source_video": ["10", 0]}) == "video_edit"
+
+
+def test_detect_mode_video_extend():
+    assert pricing.detect_seedance_mode(
+        {"source_video": ["10", 0], "video_task": "extend"}
+    ) == "video_extend"
+
+
 def test_detect_mode_image_to_video():
     assert pricing.detect_seedance_mode({"first_frame": ["10", 0]}) == "image_to_video"
 
