@@ -15,6 +15,7 @@ const WATCHED_WIDGETS = [
     "duration",
     "batch_count",
     "muapi_route",
+    "video_task",
 ];
 
 function detectMode(node) {
@@ -26,6 +27,10 @@ function detectMode(node) {
         (i) =>
             /^reference_(image|video|audio)\d+$/.test(i.name) && i.link != null
     );
+    if (linked("source_video")) {
+        const task = widgetValue(node, "video_task") || "auto";
+        return task === "extend" ? "video_extend" : "video_edit";
+    }
     if (anyRef) return "reference_to_video";
     if (linked("first_frame") && linked("last_frame")) return "first_last_frame";
     if (linked("first_frame")) return "image_to_video";
@@ -34,7 +39,9 @@ function detectMode(node) {
 
 function hasVideoRefs(node) {
     return (node.inputs || []).some(
-        (i) => /^reference_video\d+$/.test(i.name) && i.link != null
+        (i) =>
+            (i.name === "source_video" || /^reference_video\d+$/.test(i.name)) &&
+            i.link != null
     );
 }
 
@@ -49,8 +56,18 @@ function titleCase(name) {
 
 function shortRoute(summary) {
     if (summary.provider === "muapi") {
+        const route = summary.route || "";
+        if (route.startsWith("seedance-2.5")) {
+            if (route.includes("-spicy-") || route.startsWith("seedance-2.5-spicy")) {
+                return "2.5-spicy";
+            }
+            if (route.includes("-intl-") || route.startsWith("seedance-2.5-intl")) {
+                return "2.5-intl";
+            }
+            return "2.5";
+        }
         // seedance-2-mini-spicy-text-to-video -> mini-spicy
-        const m = summary.route.match(/seedance-2-(mini-spicy|mini|spicy|vip)/);
+        const m = route.match(/seedance-2-(mini-spicy|mini|spicy|vip)/);
         const tier = m ? m[1] : "global";
         return `${tier}`;
     }
@@ -70,7 +87,7 @@ function renderSummary(data, node) {
         const line2 =
             low.total == null || high.total == null
                 ? `Est. n/a — ${low.note || high.note || "no published price"}`
-                : `Est. ${formatMoney(low.total)}–${formatMoney(high.total)}  (${low.clips} clip${low.clips > 1 ? "s" : ""} × 4–15s auto)`;
+                : `Est. ${formatMoney(low.total)}–${formatMoney(high.total)}  (${low.clips} clip${low.clips > 1 ? "s" : ""} × ${data.duration_span || "4–15s auto"})`;
         return [line1, line2];
     }
     const s = data.summary;

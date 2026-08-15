@@ -148,22 +148,25 @@ Every Veo video generation — whether through Google's AI Studio, the web conso
 
 ### DIGIT Seedance Video
 
-Generate videos with ByteDance's Seedance 2.0 through your choice of three API providers — one node, one `provider` dropdown. Mode auto-detects from connected inputs, same as the Veo node:
+Generate videos with ByteDance's Seedance 2.0 or 2.5 through your choice of three API providers — one node, one `provider` dropdown. Mode auto-detects from connected inputs, same as the Veo node:
 
 - **Nothing connected** → text-to-video
 - **first_frame connected** → image-to-video
 - **first_frame + last_frame** → first/last-frame interpolation
 - **reference inputs connected** → reference-to-video (up to 9 images, 3 videos, 3 audio; reference them in the prompt as `@Image1`, `@Video1`, `@Audio1`)
+- **source_video connected** → video edit (Seedance 2.5). Set `video_task` to `extend` to continue from the last frame instead.
+
+**Models:** `seedance-2.0` (default), `seedance-2.0-fast` (fal only, 480p/720p), `seedance-2.5` (fal 480p/720p native; MUAPI 480p–4K, 30s clips, video edit/extend). Replicate is 2.0 only. MUAPI 2.5 1080p/4K endpoints are **upscaled from 720p**, not native 4K. 2.0 VIP 4K stays the native (and cheaper) 4K auto-route.
 
 **Providers:**
 
 | Provider | Env var | Content filtering | Notes |
 |----------|---------|-------------------|-------|
-| `fal` (default) | `FAL_KEY` | Strict — blocks real people and likenesses | Fastest queue. Supports the `seedance-2.0-fast` model at 480p/720p. |
-| `muapi` | `MUAPIAPP_API_KEY` | Low/reduced — people OK | Cheapest at 480p/720p; the only low-censorship route to 1080p/4K. |
-| `replicate` | `REPLICATE_API_TOKEN` | ByteDance stock filter — blocks sensitive content incl. people | Backup provider. Supports `negative_prompt`. |
+| `fal` (default) | `FAL_KEY` | Strict — blocks real people and likenesses | Fastest queue. Supports `seedance-2.0-fast` and `seedance-2.5` at 480p/720p. |
+| `muapi` | `MUAPIAPP_API_KEY` | Low/reduced — people OK | Cheapest at 480p/720p on 2.0; the only low-censorship route to 1080p/4K. Seedance 2.5 is opt-in via the `model` dropdown. |
+| `replicate` | `REPLICATE_API_TOKEN` | ByteDance stock filter — blocks sensitive content incl. people | Backup provider. Supports `negative_prompt`. 2.0 only. |
 
-**MUAPI auto-routing:** artists pick a resolution and go. With `muapi_route` set to `auto` (the default), the node picks the cheapest low-censorship MUAPI endpoint for the requested (mode, resolution):
+**MUAPI auto-routing:** artists pick a resolution and go. With `muapi_route` set to `auto` (the default), the node picks the cheapest low-censorship MUAPI endpoint for the requested (mode, resolution) on **2.0**. Switch `model` to `seedance-2.5` to use the 2.5 family instead (do not change 2.0 auto-routes — 2.5 is more expensive).
 
 | Mode | 480p | 720p | 1080p | 4K |
 |------|------|------|-------|-----|
@@ -172,7 +175,9 @@ Generate videos with ByteDance's Seedance 2.0 through your choice of three API p
 | first/last frame | VIP fast $0.21/s | VIP fast $0.21/s | VIP $0.675/s | VIP $1.35/s |
 | reference (omni) | mini-omni $0.08/s | mini-omni $0.15/s | VIP $0.675/s | VIP $1.35/s |
 
-mini/mini-spicy tiers only exist at 480p/720p; 1080p/4K upgrade automatically to VIP endpoints (also low censorship). The `muapi_route` dropdown is the escape hatch for forcing VIP priority queue or a specific tier. All routing and pricing data lives in `seedance_pricing.py` — repricing is a one-file edit.
+**Seedance 2.5 MUAPI (opt-in):** $0.17/s 480p, $0.34/s 720p, $0.85/s 1080p (upscaled), $1.70/s 4K (upscaled). Video edit/extend: $0.1105 / $0.221 / $0.5525 / $1.105 per second, billed on source duration **plus** output duration.
+
+mini/mini-spicy tiers only exist at 480p/720p; 1080p/4K upgrade automatically to VIP endpoints (also low censorship). The `muapi_route` dropdown is the escape hatch for forcing VIP priority queue, a specific 2.0 tier, or a 2.5 slug. All routing and pricing data lives in `seedance_pricing.py` — repricing is a one-file edit.
 
 **Live cost strip:** the node shows a two-line estimate at the bottom that updates as you change provider, resolution, duration, or batch count:
 
@@ -187,13 +192,15 @@ fal and replicate answer from the static price table; muapi proxies its live est
 
 | Provider | 480p | 720p | 1080p | 4K |
 |----------|------|------|-------|-----|
-| muapi (auto) | $0.08 | $0.15 | $0.675 | $1.35 |
+| muapi (auto 2.0) | $0.08 | $0.15 | $0.675 | $1.35 |
+| muapi 2.5 | $0.17 | $0.34 | $0.85 | $1.70 |
 | replicate | $0.08 | $0.18 | $0.45 | $1.00 |
-| fal | $0.14 | $0.30 | $0.68 | $1.56 |
+| fal 2.0 | $0.14 | $0.30 | $0.68 | $1.56 |
+| fal 2.5 | $0.22 | $0.47 | — | — |
 
 Replicate is cheaper than MUAPI at 1080p/4K — but only MUAPI passes people through its filter. Pick by content, not just price.
 
-**Other inputs:** `duration` (4-15s or `auto`; MUAPI requires a number), `aspect_ratio`, `generate_audio`, `bitrate_mode` (fal + muapi), `batch_count` (1-8, submits all before polling), `seed` (fal + replicate; MUAPI has no seed input), `negative_prompt` (replicate only).
+**Other inputs:** `duration` (4-15s on 2.0, 4-30s on 2.5, `auto`, or `same_as_input` which probes the first connected source/reference video). Video edit inherits the source length — use `same_as_input` or `auto`. MUAPI still needs a number except on video edit. `aspect_ratio`, `generate_audio`, `bitrate_mode` (2.0 fal + muapi), `batch_count` (1-8, submits all before polling), `seed` (fal + replicate; MUAPI Seedance 2.5 also accepts seed), `negative_prompt` (replicate only), `video_task` (`auto` / `edit` / `extend` when `source_video` is connected).
 
 **Outputs:** `video` (first clip), `video_paths` (all clips, feed to Video Saver), `status` (provider, route, cost, per-job request IDs).
 
