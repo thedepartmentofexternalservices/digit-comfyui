@@ -57,6 +57,8 @@ def _connected(inputs: dict, key: str) -> bool:
 
 
 def detect_seedance_mode(inputs: dict) -> str:
+    has_source = _connected(inputs, "source_video")
+    video_task = str(inputs.get("video_task") or "auto").strip().lower()
     has_refs = any(
         _connected(inputs, f"reference_image{i}") for i in range(1, 10)
     ) or any(
@@ -66,6 +68,8 @@ def detect_seedance_mode(inputs: dict) -> str:
     )
     has_first = _connected(inputs, "first_frame")
     has_last = _connected(inputs, "last_frame")
+    if has_source:
+        return "video_extend" if video_task == "extend" else "video_edit"
     if has_refs:
         return "reference_to_video"
     if has_first and has_last:
@@ -78,7 +82,7 @@ def detect_seedance_mode(inputs: dict) -> str:
 def parse_duration_seconds(inputs: dict, *, default: float = SEEDANCE_DEFAULT_DURATION) -> float:
     """Read duration from Seedance (`duration`) or Veo (`duration_seconds`)."""
     raw = inputs.get("duration_seconds", inputs.get("duration", default))
-    if raw is None or raw == "" or raw == "auto":
+    if raw is None or raw == "" or raw in ("auto", "same_as_input"):
         return float(default)
     try:
         value = float(raw)
@@ -101,7 +105,9 @@ def price_seedance_node(inputs: dict) -> dict | None:
     batch_count = max(1, int(inputs.get("batch_count") or 1))
     duration = parse_duration_seconds(inputs, default=SEEDANCE_DEFAULT_DURATION)
     mode = detect_seedance_mode(inputs)
-    has_video_refs = any(_connected(inputs, f"reference_video{i}") for i in range(1, 4))
+    has_video_refs = any(
+        _connected(inputs, f"reference_video{i}") for i in range(1, 4)
+    ) or _connected(inputs, "source_video")
 
     summary = seedance_pricing.estimate(
         provider,

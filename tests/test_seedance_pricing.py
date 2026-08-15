@@ -15,6 +15,9 @@ pricing = load_digit_module("seedance_pricing")
         ("seedance-2-mini-text-to-video", "low filter"),
         ("seedance-2-vip-text-to-video-1080p", "low filter"),
         ("seedance-2-text-to-video", "moderate filter"),
+        ("seedance-2.5-text-to-video", "standard"),
+        ("seedance-2.5-spicy-text-to-video-4k", "reduced filter"),
+        ("seedance-2.5-video-edit-4k", "standard"),
     ],
 )
 def test_muapi_filter_label(endpoint, label):
@@ -26,6 +29,9 @@ def test_muapi_filter_label(endpoint, label):
     [
         ("seedance-2-mini-spicy-text-to-video", "mini-spicy"),
         ("seedance-2-vip-text-to-video-1080p", "vip"),
+        ("seedance-2.5-text-to-video-4k", "2.5"),
+        ("seedance-2.5-intl-text-to-video-4k", "2.5-intl"),
+        ("seedance-2.5-spicy-image-to-video", "2.5-spicy"),
     ],
 )
 def test_muapi_short_route(endpoint, short):
@@ -120,3 +126,96 @@ def test_format_status_lines():
     lines = pricing.format_status_lines(summary)
     assert lines[0] == "Provider: replicate"
     assert any(line.startswith("Cost: $") for line in lines)
+
+
+def test_resolve_muapi_route_2_0_unchanged():
+    endpoint, note = pricing.resolve_muapi_route(
+        "text_to_video", "4k", model="seedance-2.0"
+    )
+    assert endpoint == "seedance-2-vip-text-to-video-4k"
+    assert note == ""
+
+
+@pytest.mark.parametrize(
+    ("mode", "resolution", "slug"),
+    [
+        ("text_to_video", "480p", "seedance-2.5-text-to-video-480p"),
+        ("text_to_video", "720p", "seedance-2.5-text-to-video"),
+        ("text_to_video", "1080p", "seedance-2.5-text-to-video-1080p"),
+        ("text_to_video", "4k", "seedance-2.5-text-to-video-4k"),
+        ("image_to_video", "720p", "seedance-2.5-image-to-video"),
+        ("first_last_frame", "4k", "seedance-2.5-first-last-frame-4k"),
+        ("reference_to_video", "480p", "seedance-2.5-omni-reference-480p"),
+        ("video_edit", "4k", "seedance-2.5-video-edit-4k"),
+        ("video_extend", "720p", "seedance-2.5-video-extend"),
+    ],
+)
+def test_resolve_muapi_route_25(mode, resolution, slug):
+    endpoint, note = pricing.resolve_muapi_route(
+        mode, resolution, model="seedance-2.5"
+    )
+    assert endpoint == slug
+    assert note == ""
+
+
+def test_estimate_muapi_25_4k_offline():
+    summary = pricing.estimate(
+        "muapi",
+        "text_to_video",
+        "4k",
+        duration_seconds=5,
+        batch_count=1,
+        fal_model="seedance-2.5",
+        use_live=False,
+    )
+    assert summary["route"] == "seedance-2.5-text-to-video-4k"
+    assert summary["per_clip"] == pytest.approx(1.70 * 5)
+
+
+def test_estimate_muapi_video_edit_4k():
+    summary = pricing.estimate(
+        "muapi",
+        "video_edit",
+        "4k",
+        duration_seconds=8,
+        batch_count=1,
+        fal_model="seedance-2.5",
+        use_live=False,
+        source_duration_seconds=8,
+    )
+    assert summary["route"] == "seedance-2.5-video-edit-4k"
+    assert summary["per_clip"] == pytest.approx(1.105 * 16)
+
+
+def test_estimate_fal_25_unsupported_4k():
+    summary = pricing.estimate(
+        "fal",
+        "text_to_video",
+        "4k",
+        duration_seconds=5,
+        batch_count=1,
+        fal_model="seedance-2.5",
+        use_live=False,
+    )
+    assert summary["per_clip"] is None
+    assert "2.5 tops out at 720p" in summary["note"]
+
+
+@pytest.mark.parametrize(
+    ("seconds", "model", "expected"),
+    [
+        (8.24, "seedance-2.0", 8),
+        (8.6, "seedance-2.0", 9),
+        (3.2, "seedance-2.0", 4),
+        (17, "seedance-2.0", 15),
+        (17, "seedance-2.5", 17),
+        (31.4, "seedance-2.5", 30),
+    ],
+)
+def test_clamp_duration_seconds(seconds, model, expected):
+    assert pricing.clamp_duration_seconds(seconds, model) == expected
+
+
+def test_2_5_slugs_are_muapi_route_choices():
+    assert "seedance-2.5-text-to-video-4k" in pricing.MUAPI_ROUTE_CHOICES
+    assert "seedance-2.5-video-edit-4k" in pricing.MUAPI_ROUTE_CHOICES
