@@ -38,7 +38,7 @@ app.registerExtension({
     name: "DIGIT.ImageSaver",
 
     async nodeCreated(node) {
-        const hasShotNodes = ["DigitImageSaver", "DigitImageLoader", "DigitVideoSaver"];
+        const hasShotNodes = ["DigitImageSaver", "DigitImageLoader", "DigitVideoSaver", "DigitUberSaver"];
         const projectOnlyNodes = ["DigitSRTMaker"];
 
         const isHasShotNode = hasShotNodes.includes(node.comfyClass);
@@ -51,6 +51,8 @@ app.registerExtension({
         const shotWidget = node.widgets.find(w => w.name === "shot");
         const subfolderWidget = node.widgets.find(w => w.name === "subfolder");
         const taskWidget = node.widgets.find(w => w.name === "task");
+        const folderWidget = node.widgets.find(w => w.name === "folder");
+        const isUberSaver = node.comfyClass === "DigitUberSaver";
 
         if (!rootWidget || !projectWidget) return;
         if (isHasShotNode && !shotWidget) return;
@@ -228,6 +230,41 @@ app.registerExtension({
             if (target) keepValueInOptions(target, isSentinelList(items) ? [] : items);
         }
 
+        function seedFolders(items) {
+            const values = Array.isArray(items) ? items.filter((name) => isUsableName(name)) : [];
+            if (!values.includes("comfy/comp")) values.unshift("comfy/comp");
+            return values;
+        }
+
+        async function refreshFolders(gen) {
+            if (!folderWidget || !shotWidget) return;
+            const root = rootWidget.value;
+            const project = projectWidget.value;
+            const shot = shotWidget.value;
+            if (!root || !isUsableName(project) || !isUsableName(shot)) {
+                keepValueInOptions(folderWidget, ["comfy/comp"]);
+                return;
+            }
+            const items = await fetchJson(
+                `/digit/folders?root=${encodeURIComponent(root)}&project=${encodeURIComponent(project)}&shot=${encodeURIComponent(shot)}`
+            );
+            if (gen !== refreshGen) return;
+            keepValueInOptions(folderWidget, seedFolders(items));
+            if (!isUsableName(folderWidget.value)) {
+                folderWidget.value = "comfy/comp";
+            }
+        }
+
+        async function refreshDestination(gen) {
+            if (folderWidget) {
+                await refreshFolders(gen);
+                return;
+            }
+            await refreshSubfolders(gen);
+            if (gen !== refreshGen) return;
+            await refreshTasks(gen);
+        }
+
         async function refreshHealth(gen) {
             try {
                 const resp = await api.fetchApi("/digit/health");
@@ -254,9 +291,7 @@ app.registerExtension({
                 if (isHasShotNode) {
                     shotWarning = await refreshShots(gen);
                     if (gen !== refreshGen) return;
-                    await refreshSubfolders(gen);
-                    if (gen !== refreshGen) return;
-                    await refreshTasks(gen);
+                    await refreshDestination(gen);
                     if (gen !== refreshGen) return;
                 }
                 const health = await refreshHealth(gen);
@@ -283,9 +318,7 @@ app.registerExtension({
                 if (isHasShotNode) {
                     shotWarning = await refreshShots(gen, { resetIfMissing: true });
                     if (gen !== refreshGen) return;
-                    await refreshSubfolders(gen);
-                    if (gen !== refreshGen) return;
-                    await refreshTasks(gen);
+                    await refreshDestination(gen);
                 }
                 if (gen !== refreshGen) return;
                 setStatus(shotWarning || projectWarning);
@@ -306,9 +339,7 @@ app.registerExtension({
                     resetIfMissing: true,
                 });
                 if (gen !== refreshGen) return;
-                await refreshSubfolders(gen);
-                if (gen !== refreshGen) return;
-                await refreshTasks(gen);
+                await refreshDestination(gen);
                 if (gen !== refreshGen) return;
                 setStatus(warning);
             } catch (err) {
@@ -346,9 +377,7 @@ app.registerExtension({
                 clearRetry();
                 const gen = ++refreshGen;
                 try {
-                    await refreshSubfolders(gen);
-                    if (gen !== refreshGen) return;
-                    await refreshTasks(gen);
+                    await refreshDestination(gen);
                 } catch (err) {
                     if (gen !== refreshGen) return;
                     scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
@@ -406,14 +435,54 @@ app.registerExtension({
                     keepValueInOptions(shotCombo(), payload.shots || [shotWidget.value], false);
                     if (shotPick) shotPick.value = shotWidget.value;
                     const gen = ++refreshGen;
-                    await refreshSubfolders(gen);
-                    if (gen !== refreshGen) return;
-                    await refreshTasks(gen);
+                    await refreshDestination(gen);
                     if (gen !== refreshGen) return;
                     setStatus(`Created shot ${shotWidget.value}`);
                     node.setDirtyCanvas(true);
                 } catch (_err) {
                     setStatus("Create shot failed. Refresh PROJEKTS to retry.");
+                }
+            });
+        }
+
+        if (isUberSaver && folderWidget) {
+            node.addWidget("button", "create_folder", "+ Folder", async () => {
+                const root = rootWidget.value;
+                const project = projectWidget.value;
+                const shot = shotWidget && shotWidget.value;
+                if (!root || !isUsableName(project) || !isUsableName(shot)) {
+                    setStatus("Pick a project and shot first.");
+                    return;
+                }
+                const typed = window.prompt(
+                    "Folder under this shot (example: comfy/comp/v001)",
+                    folderWidget.value || "comfy/comp"
+                );
+                if (typed === null) return;
+                const folder = typed.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+                if (!folder) {
+                    setStatus("Type a folder path.");
+                    return;
+                }
+                setStatus(`Creating ${folder}…`);
+                try {
+                    const resp = await api.fetchApi("/digit/create_folder", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ root, project, shot, folder }),
+                    });
+                    const payload = await resp.json();
+                    if (resp.status !== 200) {
+                        setStatus((payload && payload.error) || `Create folder failed (${resp.status})`);
+                        return;
+                    }
+                    const created = payload.folder || folder;
+                    keepValueInOptions(folderWidget, seedFolders(payload.folders || [created]), false);
+                    folderWidget.value = created;
+                    setStatus(`Created ${created}`);
+                    node.setDirtyCanvas(true);
+                } catch (_err) {
+                    setStatus("Create folder failed. Refresh PROJEKTS to retry.");
                 }
             });
         }

@@ -186,3 +186,43 @@ def test_health_is_503_when_root_unlistable(tmp_path, monkeypatch):
     assert status == 503
     assert payload["ok"] is False
     assert payload["last_scan_error"] is not None
+
+
+def test_folders_lists_nested_paths(tmp_path, monkeypatch):
+    async def body(client, root):
+        shot_dir = tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh010"
+        (shot_dir / "comfy" / "comp").mkdir(parents=True)
+        (shot_dir / "plates").mkdir()
+        listed = await client.get(
+            "/digit/folders",
+            params={"root": root, "project": "12345_demo", "shot": "sh010"},
+        )
+        missing = await client.get(
+            "/digit/folders",
+            params={"root": root, "project": "12345_demo", "shot": ""},
+        )
+        return listed.status, await listed.json(), missing.status
+
+    status, folders, missing_status = _run(tmp_path, monkeypatch, body)
+    assert status == 200
+    assert folders == ["comfy", "comfy/comp", "plates"]
+    assert missing_status == 400
+
+
+def test_create_folder_makes_nested_path(tmp_path, monkeypatch):
+    async def body(client, root):
+        resp = await client.post("/digit/create_folder", json={
+            "root": root,
+            "project": "12345_demo",
+            "shot": "sh010",
+            "folder": "comfy/comp/v001",
+        })
+        payload = await resp.json()
+        return resp.status, payload
+
+    status, payload = _run(tmp_path, monkeypatch, body)
+    assert status == 200
+    assert payload["folder"] == "comfy/comp/v001"
+    assert payload["ok"] is True
+    created = tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh010" / "comfy" / "comp" / "v001"
+    assert created.is_dir()

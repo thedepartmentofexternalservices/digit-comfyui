@@ -212,3 +212,28 @@ def test_combo_choices_strips_sentinels():
     assert projekts_utils.combo_choices([]) == [""]
     assert projekts_utils.combo_choices(["12345_demo", "(no projects found)"]) == ["12345_demo"]
     assert projekts_utils.combo_choices(["sh010", "ROUND_04"]) == ["sh010", "ROUND_04"]
+
+
+def test_parse_folder_and_next_output_path(tmp_path):
+    root = tmp_path / "PROJEKTS"
+    shot = root / "12345_demo" / "shots" / "sh010"
+    (shot / "comfy" / "comp" / "v001").mkdir(parents=True)
+    (shot / "comfy" / "comp" / "v001" / "12345_hero_wide.1001.png").write_bytes(b"x")
+    assert projekts_utils.parse_folder("comfy/comp/v001") == ["comfy", "comp", "v001"]
+    preview = projekts_utils.next_output_path(
+        str(root), "12345_demo", "sh010", "comfy/comp/v001",
+        filename="hero_wide", ext="png", start_frame=1001, frame_pad=4,
+    )
+    assert preview["frame"] == 1002
+    assert preview["filename"] == "12345_hero_wide.1002.png"
+    assert preview["directory"].endswith(os.path.join("sh010", "comfy", "comp", "v001"))
+
+
+def test_scan_shot_folders_lists_nested_paths(tmp_path):
+    root = tmp_path / "PROJEKTS"
+    shot = root / "12345_demo" / "shots" / "sh010"
+    (shot / "comfy" / "comp").mkdir(parents=True)
+    (shot / "plates").mkdir()
+    assert projekts_utils.scan_shot_folders(str(root), "12345_demo", "sh010") == [
+        "comfy", "comfy/comp", "plates",
+    ]

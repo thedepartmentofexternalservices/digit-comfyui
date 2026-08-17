@@ -7,6 +7,7 @@ from .seedream_image_node import DigitSeedreamImage
 from .veo_video_node import DigitVeoVideo
 from .omni_video_node import DigitOmniVideo
 from .video_saver_node import DigitVideoSaver
+from .uber_saver_node import DigitUberSaver
 from .drag_crop_node import DigitDragCrop, DigitCropInfo
 from .srt_maker_node import DigitSRTMaker
 from .srt_from_video_node import DigitSRTFromVideo, DigitBatchSRTFromVideo, DigitSRTTools, DigitSRTPreview
@@ -52,6 +53,7 @@ NODE_CLASS_MAPPINGS = {
     "DigitVeoVideo": DigitVeoVideo,
     "DigitOmniVideo": DigitOmniVideo,
     "DigitVideoSaver": DigitVideoSaver,
+    "DigitUberSaver": DigitUberSaver,
     "DigitDragCrop": DigitDragCrop,
     "DigitCropInfo": DigitCropInfo,
     "DigitSRTMaker": DigitSRTMaker,
@@ -111,6 +113,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DigitVeoVideo": "DIGIT Veo Video",
     "DigitOmniVideo": "DIGIT Gemini Omni Video",
     "DigitVideoSaver": "DIGIT Video Saver",
+    "DigitUberSaver": "DIGIT Uber Saver",
     "DigitDragCrop": "DIGIT Drag Crop",
     "DigitCropInfo": "DIGIT Crop Info",
     "DigitSRTMaker": "DIGIT SRT Maker",
