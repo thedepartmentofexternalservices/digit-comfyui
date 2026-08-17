@@ -250,6 +250,188 @@ def scan_child_folders(projekts_root, project, shot, subfolder=None):
     return folders if folders else [""]
 
 
+_MAX_FOLDER_DEPTH = 8
+_STRIP_EXTS = (".png", ".jpg", ".jpeg", ".exr", ".mp4", ".tif", ".tiff", ".webp", ".mov")
+
+
+def parse_folder(folder):
+    """Validated relative folder segments under a shot.
+
+    Empty defaults to ``comfy/comp``. Rejects ``..``, absolute paths, and
+    more than ``_MAX_FOLDER_DEPTH`` segments.
+    """
+    text = str(folder or "").strip().replace("\\", "/").strip("/")
+    if text == "":
+        return ["comfy", "comp"]
+    parts = [part for part in text.split("/") if part]
+    if not parts:
+        return ["comfy", "comp"]
+    for part in parts:
+        validate_segment("folder", part)
+    if len(parts) > _MAX_FOLDER_DEPTH:
+        _reject(f"folder can be at most {_MAX_FOLDER_DEPTH} levels")
+    return parts
+
+
+def effective_folder(folder="", subfolder=None, task=None):
+    """Prefer the save-dialog folder string; fall back to legacy subfolder/task."""
+    text = str(folder or "").strip()
+    if text:
+        return text
+    if subfolder and task:
+        return f"{subfolder}/{task}"
+    if subfolder:
+        return str(subfolder)
+    return "comfy/comp"
+
+
+def resolve_folder_dir(projekts_root, project, shot, folder):
+    """Build <root>/<project>/shots/<shot>/<folder> after validating segments."""
+    if not projekts_root:
+        _reject("projekts_root is required")
+    validate_segment("project", project)
+    validate_segment("shot", shot)
+    parts = parse_folder(folder)
+    target_dir = os.path.join(projekts_root, project, "shots", shot, *parts)
+    if not is_within_roots(target_dir, roots=[projekts_root]):
+        _reject(
+            f"Pipeline path escapes PROJEKTS root {projekts_root!r}: {target_dir}"
+        )
+    return target_dir
+
+
+def scan_shot_folders(projekts_root, project, shot):
+    """Existing folders under a shot, as relative paths at any depth."""
+    try:
+        validate_segment("project", project)
+        validate_segment("shot", shot)
+    except ValueError:
+        return [""]
+    shot_dir = os.path.join(projekts_root, project, "shots", shot)
+    if not _is_dir_safe(shot_dir):
+        return [""]
+    found = []
+
+    def walk(rel, depth):
+        current = os.path.join(shot_dir, rel) if rel else shot_dir
+        try:
+            names = listdir_resilient(current)
+        except StorageUnavailableError:
+            raise
+        for name in sorted(names):
+            if is_placeholder(name):
+                continue
+            child = os.path.join(current, name)
+            if not _is_dir_safe(child):
+                continue
+            path = f"{rel}/{name}" if rel else name
+            found.append(path)
+            if depth < _MAX_FOLDER_DEPTH:
+                walk(path, depth + 1)
+
+    try:
+        walk("", 1)
+    except StorageUnavailableError:
+        return [SENTINEL_STORAGE_UNAVAILABLE]
+    return found if found else [""]
+
+
+def create_folder_dir(projekts_root, project, shot, folder):
+    """Create a folder path under an existing shot. Project and shot must exist."""
+    if not projekts_root:
+        _reject("projekts_root is required")
+    project = validate_segment("project", project)
+    shot = validate_segment("shot", shot)
+    shot_dir = os.path.join(projekts_root, project, "shots", shot)
+    if not is_within_roots(shot_dir, roots=[projekts_root]):
+        _reject(f"Shot path escapes PROJEKTS root {projekts_root!r}")
+    if not _is_dir_safe(shot_dir):
+        raise FileNotFoundError(f"shot not found: {shot}")
+    target = resolve_folder_dir(projekts_root, project, shot, folder)
+    os.makedirs(target, exist_ok=True)
+    logger.info("projekts_folder_created path=%s", target)
+    return target
+
+
+def sanitize_filename_stem(value):
+    """Validate a typed file stem and strip a trailing extension if included."""
+    text = validate_segment("filename", value)
+    lower = text.lower()
+    for suffix in _STRIP_EXTS:
+        if lower.endswith(suffix):
+            text = text[: -len(suffix)]
+            break
+    return validate_segment("filename", text)
+
+
+def folder_task_name(folder):
+    """Last path segment of a save-dialog folder, used in PREFIX_SHOT_TASK."""
+    return parse_folder(folder)[-1]
+
+
+def file_stem(project, shot, task, filename=""):
+    """Build a filename stem that always starts with the project's job number."""
+    prefix = str(project)[:5]
+    text = str(filename or "").strip()
+    if text:
+        stem = sanitize_filename_stem(text)
+        if stem == prefix or stem.startswith(f"{prefix}_"):
+            return stem
+        return f"{prefix}_{stem}"
+    task_seg = str(task or "comp").replace("\\", "/").strip("/").split("/")[-1] or "comp"
+    shot_seg = str(shot)
+    if shot_seg.startswith(f"{prefix}_"):
+        return f"{shot_seg}_{task_seg}"
+    return f"{prefix}_{shot_seg}_{task_seg}"
+
+
+def next_stem_frame(target_dir, stem, ext, start_frame, frame_pad):
+    """Find the next frame number for ``stem.FRAME.ext`` files."""
+    pat = re.compile(
+        rf"^{re.escape(stem)}\.(\d+)\.{re.escape(ext)}$"
+    )
+    max_frame = start_frame - 1
+    if _is_dir_safe(target_dir):
+        try:
+            names = listdir_resilient(target_dir)
+        except StorageUnavailableError:
+            names = []
+        for name in names:
+            match = pat.match(name)
+            if match:
+                max_frame = max(max_frame, int(match.group(1)))
+    return max_frame + 1
+
+
+def next_output_path(projekts_root, project, shot, folder, filename="",
+                     ext="png", start_frame=1001, frame_pad=4):
+    """Return the next pipeline output path without creating files or folders."""
+    extension = validate_segment("format", str(ext).lower().lstrip("."))
+    try:
+        start = int(start_frame)
+        padding = int(frame_pad)
+    except (TypeError, ValueError):
+        _reject("start_frame and frame_pad must be integers")
+    if start < 0:
+        _reject("start_frame must be zero or greater")
+    if padding < 1 or padding > 8:
+        _reject("frame_pad must be between 1 and 8")
+
+    folder_path = effective_folder(folder)
+    target_dir = resolve_folder_dir(projekts_root, project, shot, folder_path)
+    stem = file_stem(project, shot, folder_task_name(folder_path), filename)
+    frame = next_stem_frame(target_dir, stem, extension, start, padding)
+    disk_name = f"{stem}.{frame:0{padding}d}.{extension}"
+    return {
+        "path": os.path.join(target_dir, disk_name),
+        "directory": target_dir,
+        "filename": disk_name,
+        "frame": frame,
+        "stem": stem,
+        "extension": extension,
+    }
+
+
 def resolve_pipeline_dir(projekts_root, project, shot, subfolder, task):
     """Build <root>/<project>/shots/<shot>/<subfolder>/<task> after validating segments.
 

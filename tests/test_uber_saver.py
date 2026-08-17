@@ -68,7 +68,7 @@ def test_uber_saver_saves_image(tmp_path):
     assert path.is_file()
     assert path == (
         root / "12345_demo" / "shots" / "sh010"
-        / "comfy" / "comp" / "v001" / "hero_wide.1001.png"
+        / "comfy" / "comp" / "v001" / "12345_hero_wide.1001.png"
     )
 
 
@@ -82,7 +82,7 @@ def test_uber_saver_saves_video_path(tmp_path):
     )
     path = Path(result["result"][0])
     assert path.read_bytes() == b"video"
-    assert path.name == "hero_wide.1001.mp4"
+    assert path.name == "12345_hero_wide.1001.mp4"
 
 
 def test_uber_saver_requires_media(tmp_path):

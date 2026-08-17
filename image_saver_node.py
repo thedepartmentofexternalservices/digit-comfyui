@@ -15,6 +15,7 @@ from server import PromptServer
 from .projekts_utils import (
     SENTINEL_NO_SHOTS,
     combo_choices,
+    create_folder_dir,
     create_shot_dir,
     get_available_projekts_roots,
     health_payload,
@@ -22,9 +23,12 @@ from .projekts_utils import (
     is_storage_unavailable,
     is_within_roots,
     next_frame,
+    next_output_path,
+    parse_folder,
     resolve_pipeline_dir,
     scan_child_folders,
     scan_projects,
+    scan_shot_folders,
     scan_shots,
 )
 
@@ -131,6 +135,52 @@ async def get_tasks(request):
     return _json_scan(scan_child_folders(root, project, shot, subfolder))
 
 
+@PromptServer.instance.routes.get("/digit/folders")
+async def get_folders(request):
+    root = _constrained_root(request.rel_url.query.get("root", ""))
+    if not root:
+        return web.json_response([], status=403)
+    project = request.rel_url.query.get("project", "")
+    shot = request.rel_url.query.get("shot", "")
+    if not project or not shot:
+        return web.json_response([""], status=400)
+    return _json_scan(scan_shot_folders(root, project, shot))
+
+
+@PromptServer.instance.routes.post("/digit/create_folder")
+async def create_folder(request):
+    try:
+        data = await request.json()
+    except (TypeError, ValueError):
+        return web.json_response({"error": "invalid json"}, status=400)
+    if not isinstance(data, dict):
+        return web.json_response({"error": "invalid json"}, status=400)
+    root = _constrained_root(data.get("root", ""))
+    if not root:
+        return web.json_response({"error": "root not allowed"}, status=403)
+    project = str(data.get("project", "")).strip()
+    shot = str(data.get("shot", "")).strip()
+    folder = str(data.get("folder", "")).strip()
+    try:
+        created = create_folder_dir(root, project, shot, folder)
+    except FileNotFoundError as exc:
+        return web.json_response({"error": str(exc)}, status=404)
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+    except OSError as exc:
+        return web.json_response({"error": str(exc)}, status=503)
+    folders = scan_shot_folders(root, project, shot)
+    if is_storage_unavailable(folders):
+        return web.json_response({"error": "storage unavailable", "folders": folders}, status=503)
+    cleaned = [name for name in folders if name and not is_placeholder(name)]
+    return web.json_response({
+        "ok": True,
+        "folder": "/".join(parse_folder(folder)),
+        "path": created,
+        "folders": cleaned,
+    })
+
+
 @PromptServer.instance.routes.post("/digit/create_shot")
 async def create_shot(request):
     try:
@@ -210,14 +260,25 @@ class DigitImageSaver:
         # Always re-execute so frame numbering increments each run.
         return float("nan")
 
-    def save_image(self, image, projekts_root, project, shot, subfolder, task,
-                   format, tonemap, quality, start_frame, frame_pad, show_preview,
-                   save_workflow, prompt=None, extra_pnginfo=None):
+    def save_image(self, image, projekts_root, project, shot, subfolder="comfy",
+                   task="comp", format="png", tonemap="linear", quality=95,
+                   start_frame=1001, frame_pad=4, show_preview=True,
+                   save_workflow="none", filename="", folder="",
+                   prompt=None, extra_pnginfo=None):
         prefix = project[:5]
-        target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
+        if folder or filename:
+            output = next_output_path(
+                projekts_root, project, shot, folder or f"{subfolder}/{task}",
+                filename, format, start_frame, frame_pad,
+            )
+            target_dir = output["directory"]
+            stem = output["stem"]
+            frame_num = output["frame"]
+        else:
+            target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
+            stem = f"{prefix}_{shot}_{task}"
+            frame_num = next_frame(target_dir, prefix, shot, task, format, start_frame, frame_pad)
         os.makedirs(target_dir, exist_ok=True)
-
-        frame_num = next_frame(target_dir, prefix, shot, task, format, start_frame, frame_pad)
 
         metadata = {}
         if prompt is not None:
@@ -232,7 +293,7 @@ class DigitImageSaver:
 
         for i in range(batch_size):
             current_frame = frame_num + i
-            filename = f"{prefix}_{shot}_{task}.{current_frame:0{frame_pad}d}.{format}"
+            filename = f"{stem}.{current_frame:0{frame_pad}d}.{format}"
             filepath = os.path.join(target_dir, filename)
 
             img_np = image[i].cpu().numpy()
