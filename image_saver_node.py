@@ -92,7 +92,7 @@ def _pack_version():
             stderr=subprocess.DEVNULL,
         ).strip()
     except (OSError, subprocess.SubprocessError):
-        return "4.0.1"
+        return "4.1.0"
 
 
 def _comfyui_version():
@@ -107,6 +107,11 @@ def _comfyui_version():
 @PromptServer.instance.routes.get("/digit/health")
 async def get_health(request):
     payload = health_payload(_pack_version(), _comfyui_version())
+    try:
+        from . import seedance_pricing
+    except ImportError:
+        import seedance_pricing
+    payload["seedance_models"] = list(seedance_pricing.SEEDANCE_MODELS)
     return web.json_response(payload, status=200 if payload["ok"] else 503)
 
 

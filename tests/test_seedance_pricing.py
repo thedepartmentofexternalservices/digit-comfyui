@@ -8,6 +8,14 @@ from digit_loader import load_digit_module
 pricing = load_digit_module("seedance_pricing")
 
 
+def test_published_seedance_models_include_25():
+    assert pricing.SEEDANCE_MODELS == (
+        "seedance-2.0",
+        "seedance-2.0-fast",
+        "seedance-2.5",
+    )
+
+
 @pytest.mark.parametrize(
     ("endpoint", "label"),
     [

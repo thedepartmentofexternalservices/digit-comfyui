@@ -3,13 +3,48 @@
 This repo does **not** contain your dxs Ansible inventory or vault. You develop
 `comfyui-digit` here; Ansible on your side configures VMs, secrets, and deploy.
 
+## Fleet pin: always `master`
+
+Do **not** pin `comfyui-digit` to a SHA. `6afeac6` was pre-2.5. `0d9e8e8` (MiniMax H3) is not an ancestor of Seedance 2.5 (`#23`). Either pin rewinds Digit Dance. Track GitHub `master` and force-reset local checkouts. Live master (`c2ddf10`) already has MiniMax (`#15`) and 2.5.
+
+In `roles/comfyui_gcp/defaults/main.yml` (digit-infra-ansible):
+
+```yaml
+comfyui_digit_version: master
+```
+
+In the custom_nodes git task:
+
+```yaml
+- name: Force comfyui-digit to origin/master
+  ansible.builtin.git:
+    repo: https://github.com/thedepartmentofexternalservices/comfyui-digit.git
+    dest: /opt/comfyui/custom_nodes/comfyui-digit
+    version: "{{ comfyui_digit_version }}"
+    force: true
+    update: true
+  notify: restart comfyui
+```
+
+`force: true` discards cherry-picks and dirty trees. After the play, confirm with `GET /digit/health` — `seedance_models` must include `seedance-2.5`.
+
+Flame, studio, and Mac ComfyUI installs are not GCP `comfy*` VMs. Run this on each of those hosts (both Easy-Install and Documents/ComfyUI checkouts on the MBP):
+
+```bash
+GIT_REF=master ./scripts/sync-comfyui-digit.sh
+```
+
+Then relaunch ComfyUI and hard-refresh the browser.
+
 ## How the pieces fit
 
 ```text
   digit-comfyui (this repo)          dxs Ansible / GCP ops
   -------------------------          ----------------------
-  PR + merge code          ------>    git pull on ComfyUI VMs
-  scripts/deploy-gcp-...   ------>    (or Ansible wraps the same SSH/git pull)
+  PR + merge to master   ------>    force-reset every checkout to origin/master
+  scripts/sync-comfyui-digit.sh      (local / Flame / Mac)
+  scripts/deploy-gcp-comfyui.sh      (running GCP comfy* VMs)
+  ansible git version: master        force: true  (do not pin a SHA)
   FAL_KEY on VM            <------    Ansible vault → /etc/digit/comfyui-env
                                       or systemd EnvironmentFile
   run_h3_integration_on_vm ------>   post-deploy verify on canary host

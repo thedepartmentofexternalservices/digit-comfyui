@@ -48,6 +48,7 @@ def test_digit_replicate_seedance_registered():
     assert "DigitReplicateSeedance" in class_keys
     assert "DigitReplicateSeedance" in display_keys
     assert "[deprecated]" in display["DigitReplicateSeedance"]
+    assert "2.5" in display["DigitDanceVideo"]
 
 
 def test_digit_uber_saver_registered():
@@ -113,15 +114,19 @@ def test_digit_dance_video_exposes_25_edit_and_same_as_input():
     from digit_loader import load_digit_module
 
     seedance = load_digit_module("seedance_video_node")
+    pricing = load_digit_module("seedance_pricing")
     types = seedance.DigitDanceVideo.INPUT_TYPES()
     required = types["required"]
     optional = types["optional"]
     assert "seedance-2.5" in required["model"][0]
+    assert tuple(seedance.MODELS) == pricing.SEEDANCE_MODELS
     assert "same_as_input" in required["duration"][0]
     assert "30" in required["duration"][0]
     assert "source_video" in optional
     assert "video_task" in optional
     assert "edit" in optional["video_task"][0]
+    assert "2.5" in seedance.DigitDanceVideo.DESCRIPTION
+    assert "Digit Dance" in seedance.DigitDanceVideo.DESCRIPTION
 
 
 def _seedance_kwargs(**overrides):

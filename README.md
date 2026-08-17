@@ -22,7 +22,7 @@ This means:
 
 ## The Nodes
 
-**53 nodes** registered in v4.0.1 (including 1 deprecated alias). All appear under the **DIGIT** category unless noted.
+**53 nodes** registered in v4.1.0 (including 1 deprecated alias). All appear under the **DIGIT** category unless noted.
 
 | Family | Nodes |
 |--------|-------|
@@ -147,6 +147,8 @@ Every Veo video generation — whether through Google's AI Studio, the web conso
 ---
 
 ### DIGIT Seedance Video
+
+Node menu name: **DIGIT Seedance Video (2.0 / 2.5)** (class `DigitDanceVideo`, still called Digit Dance). Seedance 2.5 is the `seedance-2.5` item on the **model** dropdown, not a separate node. Saved Digit Dance nodes pick up new model/duration lists after a pack update plus a browser hard-refresh.
 
 Generate videos with ByteDance's Seedance 2.0 or 2.5 through your choice of three API providers — one node, one `provider` dropdown. Mode auto-detects from connected inputs, same as the Veo node:
 
@@ -999,12 +1001,21 @@ cd comfyui-digit
 pip install -r requirements.txt
 ```
 
-### Deploy to GCP ComfyUI VMs
-If your fleet runs ComfyUI on Compute Engine with `comfyui-digit` cloned into `custom_nodes`, update all nodes from a machine with `gcloud` access:
+### Deploy to every ComfyUI install
+
+Fleet machines must track GitHub `master`, not a SHA pin. From a machine with `gcloud` access:
 
 ```bash
 gcloud config set project YOUR_PROJECT_ID
 ./scripts/deploy-gcp-comfyui.sh
+```
+
+That resets **every** `comfyui-digit` checkout on each running `comfy*` VM to `origin/master` (cherry-picks included) and restarts `comfyui`. Stopped VMs are listed, not started.
+
+On Flame, studio, or a Mac (paths auto-discovered, including Easy-Install):
+
+```bash
+./scripts/sync-comfyui-digit.sh
 ```
 
 Common overrides:
@@ -1016,11 +1027,11 @@ INSTANCE_FILTER="labels.app=comfyui" ./scripts/deploy-gcp-comfyui.sh
 # Private VMs without external IPs
 USE_IAP=1 ./scripts/deploy-gcp-comfyui.sh
 
-# Custom install path or service name
-DIGIT_NODE_DIR="/opt/ComfyUI/custom_nodes/comfyui-digit" COMFYUI_SERVICE=comfyui ./scripts/deploy-gcp-comfyui.sh
+# Pin the remote path instead of auto-discovery
+DIGIT_NODE_DIR="/opt/comfyui/custom_nodes/comfyui-digit" ./scripts/deploy-gcp-comfyui.sh
 ```
 
-The script runs `git pull` on each matching VM and restarts the `comfyui` systemd service.
+Artists: hard-refresh the ComfyUI tab after the service comes back. Ansible must use `version: master` and `force: true` so the next `custom_nodes` play does not rewind the fleet. See [`ansible/README.md`](ansible/README.md).
 
 ---
 

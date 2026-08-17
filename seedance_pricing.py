@@ -22,6 +22,10 @@ logger = logging.getLogger("DigitSeedancePricing")
 
 PROVIDERS = ["fal", "muapi", "replicate"]
 
+# Keep in lockstep with SEEDANCE_APPS keys in seedance_video_node.py.
+# /digit/health and the Digit Dance combo refresh both read this list.
+SEEDANCE_MODELS = ("seedance-2.0", "seedance-2.0-fast", "seedance-2.5")
+
 MODES = (
     "text_to_video",
     "image_to_video",

@@ -97,6 +97,7 @@ def test_health_reports_reachable_root(tmp_path, monkeypatch):
     assert payload["roots"][0]["path"] == str(tmp_path / "PROJEKTS")
     assert payload["roots"][0]["reachable"] is True
     assert payload["roots"][0]["project_count"] == 1
+    assert "seedance-2.5" in payload["seedance_models"]
 
 
 def test_subfolders_and_tasks_list_children(tmp_path, monkeypatch):
