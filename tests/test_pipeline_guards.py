@@ -158,7 +158,6 @@ def test_input_types_does_not_bake_no_shots_found(tmp_path, monkeypatch):
         types = cls.INPUT_TYPES()
         shot = types["required"]["shot"]
         projects = types["required"]["project"][0]
-        assert shot[0] == "STRING"
         assert "(no shots found)" not in str(shot)
         assert "(no projects found)" not in projects
         assert "12345_demo" in projects

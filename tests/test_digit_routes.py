@@ -227,3 +227,44 @@ def test_create_folder_makes_nested_path(tmp_path, monkeypatch):
     assert payload["ok"] is True
     created = tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh010" / "comfy" / "comp" / "v001"
     assert created.is_dir()
+
+
+def test_output_preview_returns_next_path_without_writing(tmp_path, monkeypatch):
+    async def body(client, root):
+        target = (
+            tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh010"
+            / "comfy" / "comp" / "v001"
+        )
+        target.mkdir(parents=True)
+        (target / "12345_hero_wide.1001.png").write_bytes(b"existing")
+        common = {
+            "root": root,
+            "project": "12345_demo",
+            "shot": "sh010",
+            "folder": "comfy/comp/v001",
+            "filename": "hero_wide",
+            "start_frame": "1001",
+            "frame_pad": "4",
+        }
+        image = await client.get(
+            "/digit/output_preview",
+            params={**common, "saver": "image", "format": "png"},
+        )
+        video = await client.get(
+            "/digit/output_preview",
+            params={**common, "saver": "video"},
+        )
+        return (
+            image.status, await image.json(),
+            video.status, await video.json(),
+            sorted(path.name for path in target.iterdir()),
+        )
+
+    image_status, image_payload, video_status, video_payload, names = _run(
+        tmp_path, monkeypatch, body
+    )
+    assert image_status == 200
+    assert image_payload["filename"] == "12345_hero_wide.1002.png"
+    assert video_status == 200
+    assert video_payload["filename"] == "12345_hero_wide.1001.mp4"
+    assert names == ["12345_hero_wide.1001.png"]

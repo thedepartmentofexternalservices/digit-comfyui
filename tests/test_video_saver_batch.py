@@ -24,6 +24,8 @@ _resolve_source_paths = video_saver_node._resolve_source_paths
             "dance_replicate_1783980981_fea62bf2_0_0.mp4",
             "dance_replicate_1783980981_fea62bf2_*.mp4",
         ),
+        ("h3_1783980981_fea62bf2_0.mp4", "h3_1783980981_fea62bf2_*.mp4"),
+        ("minimax_1783980981_fea62bf2_0.mp4", "minimax_1783980981_fea62bf2_*.mp4"),
     ],
 )
 def test_parse_batch_timestamp(filename, expected):

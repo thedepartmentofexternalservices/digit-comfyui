@@ -28,75 +28,247 @@ function keepValueInOptions(widget, incoming, keepCurrent = true) {
     if (keepCurrent && isUsableName(current) && !values.includes(current)) {
         values.unshift(current);
     }
-    widget.options.values = values.length ? values : (keepCurrent && isUsableName(current) ? [current] : [""]);
-    if (!keepCurrent && isUsableName(current) && !values.includes(current)) {
-        widget.value = values[0] || "";
+    const next = values.length ? values : (keepCurrent && isUsableName(current) ? [current] : [""]);
+    widget.options.values = next;
+    if (!keepCurrent && isUsableName(current) && !next.includes(current)) {
+        widget.value = next[0] || "";
     }
+}
+
+function notify(message, isError) {
+    const toast = app.extensionManager && app.extensionManager.toast;
+    if (toast && toast.add) {
+        toast.add({
+            severity: isError ? "error" : "info",
+            summary: message,
+            life: 4000,
+        });
+        return;
+    }
+    if (isError) console.warn("[DIGIT]", message);
 }
 
 app.registerExtension({
     name: "DIGIT.ImageSaver",
 
     async nodeCreated(node) {
-        const hasShotNodes = ["DigitImageSaver", "DigitImageLoader", "DigitVideoSaver", "DigitUberSaver"];
+        const hasShotNodes = [
+            "DigitImageSaver", "DigitImageLoader", "DigitVideoSaver", "DigitUberSaver",
+        ];
         const projectOnlyNodes = ["DigitSRTMaker"];
 
         const isHasShotNode = hasShotNodes.includes(node.comfyClass);
         const isProjectOnlyNode = projectOnlyNodes.includes(node.comfyClass);
+        const isImageSaver = node.comfyClass === "DigitImageSaver";
+        const isVideoSaver = node.comfyClass === "DigitVideoSaver";
+        const isUberSaver = node.comfyClass === "DigitUberSaver";
+        const isSaver = isImageSaver || isVideoSaver || isUberSaver;
 
         if (!isHasShotNode && !isProjectOnlyNode) return;
 
         const rootWidget = node.widgets.find(w => w.name === "projekts_root");
         const projectWidget = node.widgets.find(w => w.name === "project");
         const shotWidget = node.widgets.find(w => w.name === "shot");
-        const subfolderWidget = node.widgets.find(w => w.name === "subfolder");
-        const taskWidget = node.widgets.find(w => w.name === "task");
         const folderWidget = node.widgets.find(w => w.name === "folder");
-        const isUberSaver = node.comfyClass === "DigitUberSaver";
+        const filenameWidget = node.widgets.find(
+            w => w.name === "filename" || w.name === "name"
+        );
+        const formatWidget = node.widgets.find(w => w.name === "format");
+        const startFrameWidget = node.widgets.find(w => w.name === "start_frame");
+        const framePadWidget = node.widgets.find(w => w.name === "frame_pad");
+        const leftoverSubfolder = node.widgets.find(w => w.name === "subfolder");
+        const leftoverTask = node.widgets.find(w => w.name === "task");
 
         if (!rootWidget || !projectWidget) return;
         if (isHasShotNode && !shotWidget) return;
 
-        const filepathWidget = node.addWidget("text", "filepath_display", "", () => {}, {
-            serialize: false,
-        });
-        filepathWidget.inputEl && (filepathWidget.inputEl.readOnly = true);
+        function hideWidget(widget) {
+            if (!widget) return;
+            widget.hidden = true;
+            widget.computeSize = () => [0, -4];
+        }
+        hideWidget(leftoverSubfolder);
+        hideWidget(leftoverTask);
 
-        const statusWidget = node.addWidget("text", "projekts_status", "", () => {}, {
-            serialize: false,
-        });
-        statusWidget.inputEl && (statusWidget.inputEl.readOnly = true);
+        const advancedWidgetNames = new Set([
+            "projekts_root", "format", "tonemap", "quality", "start_frame",
+            "frame_pad", "show_preview", "save_workflow",
+        ]);
+        const advancedWidgets = isUberSaver
+            ? node.widgets.filter(widget => advancedWidgetNames.has(widget.name))
+            : [];
+        let advancedVisible = false;
 
-        function addPick(sourceWidget, name) {
-            if (!sourceWidget) return null;
-            const pick = node.addWidget("combo", name, sourceWidget.value || "", (value) => {
-                sourceWidget.value = value;
-                node.setDirtyCanvas(true);
-                if (sourceWidget.callback) sourceWidget.callback(value);
-            }, { values: [sourceWidget.value || ""], serialize: false });
-            return pick;
+        function setAdvancedVisible(visible) {
+            advancedVisible = visible;
+            for (const widget of advancedWidgets) {
+                if (!Object.prototype.hasOwnProperty.call(widget, "_digitComputeSize")) {
+                    widget._digitComputeSize = widget.computeSize;
+                }
+                widget.hidden = !visible;
+                if (visible) {
+                    if (widget._digitComputeSize === undefined) {
+                        delete widget.computeSize;
+                    } else {
+                        widget.computeSize = widget._digitComputeSize;
+                    }
+                } else {
+                    widget.computeSize = () => [0, -4];
+                }
+            }
+            node.setSize(node.computeSize());
+            node.setDirtyCanvas(true);
         }
 
-        const shotPick = isHasShotNode ? addPick(shotWidget, "shot_pick") : null;
-        const subfolderPick = isHasShotNode ? addPick(subfolderWidget, "subfolder_pick") : null;
-        const taskPick = isHasShotNode ? addPick(taskWidget, "task_pick") : null;
-
-        const onExecuted = node.onExecuted;
-        node.onExecuted = function(data) {
-            if (onExecuted) onExecuted.call(this, data);
-            if (data && data.filepath_text && data.filepath_text.length > 0) {
-                filepathWidget.value = data.filepath_text[0];
-            }
-        };
+        if (isUberSaver) setAdvancedVisible(false);
 
         let refreshGen = 0;
+        let previewGen = 0;
+        let previewTimer = null;
+        let lastSavedPath = "";
         let retryIndex = 0;
         let retryTimer = null;
         let sawConfigure = false;
 
-        function setStatus(message) {
-            statusWidget.value = message || "";
+        let outputPreviewWidget = null;
+        if (isSaver) {
+            outputPreviewWidget = node.addWidget(
+                "text", "Next output", "Pick a project.", () => {}, {
+                    multiline: true,
+                    serialize: false,
+                }
+            );
+            if (outputPreviewWidget.inputEl) {
+                outputPreviewWidget.inputEl.readOnly = true;
+                outputPreviewWidget.inputEl.rows = 2;
+                outputPreviewWidget.inputEl.wrap = "off";
+                outputPreviewWidget.inputEl.style.fontFamily = "monospace";
+                outputPreviewWidget.inputEl.style.fontSize = "11px";
+                outputPreviewWidget.inputEl.style.resize = "none";
+                outputPreviewWidget.inputEl.style.whiteSpace = "pre";
+                outputPreviewWidget.inputEl.style.overflowX = "auto";
+            }
+            const previewIndex = node.widgets.indexOf(outputPreviewWidget);
+            const filenameIndex = node.widgets.indexOf(filenameWidget);
+            if (previewIndex >= 0 && filenameIndex >= 0) {
+                node.widgets.splice(previewIndex, 1);
+                node.widgets.splice(filenameIndex + 1, 0, outputPreviewWidget);
+            }
+        }
+
+        function setOutputPreview(message) {
+            if (!outputPreviewWidget) return;
+            outputPreviewWidget.value = message;
+            if (outputPreviewWidget.inputEl) {
+                outputPreviewWidget.inputEl.title = message;
+            }
             node.setDirtyCanvas(true);
+        }
+
+        function connectedInputType(name) {
+            const input = node.inputs && node.inputs.find(item => item.name === name);
+            if (!input) return "";
+            const linkId = input.link !== null && input.link !== undefined && input.link !== -1
+                ? input.link
+                : Array.isArray(input.links) && input.links.length
+                    ? input.links[0]
+                    : null;
+            if (linkId === null) return "";
+            const link = app.graph && app.graph.links && app.graph.links[linkId];
+            const origin = link && app.graph.getNodeById(link.origin_id);
+            const output = origin && origin.outputs && origin.outputs[link.origin_slot];
+            return output && typeof output.type === "string" ? output.type : "";
+        }
+
+        function selectedSaverType() {
+            if (isImageSaver) return "image";
+            if (isVideoSaver) return "video";
+            const mediaTypes = connectedInputType("media")
+                .split(",")
+                .map(value => value.trim());
+            if (mediaTypes.includes("VIDEO") || mediaTypes.includes("VIDEO_PATHS")) {
+                return "video";
+            }
+            if (mediaTypes.includes("IMAGE")) return "image";
+            return "";
+        }
+
+        async function refreshOutputPreview(gen) {
+            if (!outputPreviewWidget) return;
+            const root = rootWidget.value;
+            const project = projectWidget.value;
+            const shot = shotWidget && shotWidget.value;
+            const folder = folderWidget && folderWidget.value;
+
+            if (!root) {
+                setOutputPreview("Pick a PROJEKTS root.");
+                return;
+            }
+            if (!isUsableName(project)) {
+                setOutputPreview("Pick a project.");
+                return;
+            }
+            if (!isUsableName(shot)) {
+                setOutputPreview("Pick a shot.");
+                return;
+            }
+            if (!isUsableName(folder)) {
+                setOutputPreview("Pick or create a folder.");
+                return;
+            }
+            const saverType = selectedSaverType();
+            if (isUberSaver && !saverType) {
+                setOutputPreview("Connect an image or video.");
+                return;
+            }
+
+            const params = new URLSearchParams({
+                saver: saverType,
+                root,
+                project,
+                shot,
+                folder,
+                filename: filenameWidget ? filenameWidget.value || "" : "",
+                format: formatWidget ? formatWidget.value || "png" : "png",
+                start_frame: startFrameWidget ? startFrameWidget.value : 1001,
+                frame_pad: framePadWidget ? framePadWidget.value : 4,
+            });
+
+            try {
+                const resp = await api.fetchApi(`/digit/output_preview?${params.toString()}`);
+                const payload = await resp.json();
+                if (gen !== previewGen) return;
+                if (resp.status !== 200) {
+                    setOutputPreview((payload && payload.error) || `Path preview failed (${resp.status})`);
+                    return;
+                }
+                const nextLine = `Next: ${payload.path}`;
+                setOutputPreview(lastSavedPath
+                    ? `Saved: ${lastSavedPath}\n${nextLine}`
+                    : nextLine
+                );
+            } catch (_err) {
+                if (gen !== previewGen) return;
+                setOutputPreview("Path preview unavailable. Click Refresh.");
+            }
+        }
+
+        function scheduleOutputPreview(clearSaved = false) {
+            if (!outputPreviewWidget) return;
+            if (clearSaved) lastSavedPath = "";
+            if (previewTimer) clearTimeout(previewTimer);
+            const gen = ++previewGen;
+            previewTimer = setTimeout(() => refreshOutputPreview(gen), 150);
+        }
+
+        if (filenameWidget && outputPreviewWidget) {
+            const origFilenameCallback = filenameWidget.callback;
+            filenameWidget.callback = function() {
+                if (origFilenameCallback) {
+                    origFilenameCallback.apply(this, arguments);
+                }
+                scheduleOutputPreview(true);
+            };
         }
 
         function clearRetry() {
@@ -109,12 +281,11 @@ app.registerExtension({
 
         function scheduleRetry(reason) {
             if (retryIndex >= RETRY_MS.length) {
-                setStatus(`${reason}. Click Refresh PROJEKTS.`);
+                notify(`${reason}. Click Refresh.`, true);
                 return;
             }
             const delay = RETRY_MS[retryIndex];
             retryIndex += 1;
-            setStatus(`${reason}. Retrying in ${delay / 1000}s…`);
             retryTimer = setTimeout(() => {
                 refreshAll();
             }, delay);
@@ -128,10 +299,6 @@ app.registerExtension({
                 throw err;
             }
             return resp.json();
-        }
-
-        function shotCombo() {
-            return shotPick || (shotWidget && shotWidget.options ? shotWidget : null);
         }
 
         async function refreshRoots(gen) {
@@ -153,7 +320,7 @@ app.registerExtension({
             if (gen !== refreshGen) return "";
             if (isSentinelList(projects)) {
                 keepValueInOptions(projectWidget, []);
-                return "No projects in this root. Refresh PROJEKTS to retry.";
+                return "No projects in this root.";
             }
             keepValueInOptions(projectWidget, projects);
             return "";
@@ -164,9 +331,8 @@ app.registerExtension({
             const resetIfMissing = Boolean(opts.resetIfMissing);
             const root = opts.root !== undefined ? opts.root : rootWidget.value;
             const project = opts.project !== undefined ? opts.project : projectWidget.value;
-            const target = shotCombo();
             if (!root || !isUsableName(project)) {
-                keepValueInOptions(target, [], false);
+                keepValueInOptions(shotWidget, [], false);
                 if (resetIfMissing) shotWidget.value = "";
                 return "";
             }
@@ -175,109 +341,53 @@ app.registerExtension({
             );
             if (gen !== refreshGen) return "";
             if (isSentinelList(shots)) {
-                keepValueInOptions(target, [], false);
-                if (resetIfMissing) {
-                    shotWidget.value = "";
-                    if (target) target.value = "";
-                }
+                keepValueInOptions(shotWidget, [], false);
+                if (resetIfMissing) shotWidget.value = "";
                 const saved = shotWidget.value;
                 if (!resetIfMissing && isUsableName(saved)) {
-                    return `Saved shot ${saved} not in current list — project has no shots. Create shot or Refresh.`;
+                    return `Saved shot ${saved} is not in this project.`;
                 }
-                return "No shots in this project. Type a name and click Create shot.";
+                return "No shots yet. Click + Shot.";
             }
-            keepValueInOptions(target, shots, !resetIfMissing);
+            keepValueInOptions(shotWidget, shots, !resetIfMissing);
             if (resetIfMissing && !shots.includes(shotWidget.value)) {
                 shotWidget.value = shots[0] || "";
-                if (target) target.value = shotWidget.value;
-            } else if (target && isUsableName(shotWidget.value)) {
-                target.value = shotWidget.value;
-            }
-            const saved = shotWidget.value;
-            if (!resetIfMissing && isUsableName(saved) && !shots.includes(saved)) {
-                return `Saved shot ${saved} not in current list. Create shot or Refresh.`;
             }
             node.setDirtyCanvas(true);
             return "";
         }
 
-        async function refreshSubfolders(gen) {
-            if (!subfolderWidget || !shotWidget) return;
-            const root = rootWidget.value;
-            const project = projectWidget.value;
-            const shot = shotWidget.value;
-            if (!root || !isUsableName(project) || !isUsableName(shot)) return;
-            const items = await fetchJson(
-                `/digit/subfolders?root=${encodeURIComponent(root)}&project=${encodeURIComponent(project)}&shot=${encodeURIComponent(shot)}`
-            );
-            if (gen !== refreshGen) return;
-            const target = subfolderPick || (subfolderWidget && subfolderWidget.options ? subfolderWidget : null);
-            if (target) keepValueInOptions(target, isSentinelList(items) ? [] : items);
-        }
-
-        async function refreshTasks(gen) {
-            if (!taskWidget || !shotWidget || !subfolderWidget) return;
-            const root = rootWidget.value;
-            const project = projectWidget.value;
-            const shot = shotWidget.value;
-            const subfolder = subfolderWidget.value;
-            if (!root || !isUsableName(project) || !isUsableName(shot) || !isUsableName(subfolder)) return;
-            const items = await fetchJson(
-                `/digit/tasks?root=${encodeURIComponent(root)}&project=${encodeURIComponent(project)}&shot=${encodeURIComponent(shot)}&subfolder=${encodeURIComponent(subfolder)}`
-            );
-            if (gen !== refreshGen) return;
-            const target = taskPick || (taskWidget && taskWidget.options ? taskWidget : null);
-            if (target) keepValueInOptions(target, isSentinelList(items) ? [] : items);
-        }
-
-        function seedFolders(items) {
-            const values = Array.isArray(items) ? items.filter((name) => isUsableName(name)) : [];
+        function seedFolders(incoming) {
+            const values = Array.isArray(incoming) ? incoming.filter((name) => isUsableName(name)) : [];
             if (!values.includes("comfy/comp")) values.unshift("comfy/comp");
             return values;
         }
 
-        async function refreshFolders(gen) {
-            if (!folderWidget || !shotWidget) return;
-            const root = rootWidget.value;
-            const project = projectWidget.value;
-            const shot = shotWidget.value;
+        async function refreshFolders(gen, opts = {}) {
+            if (!folderWidget) return "";
+            const resetIfMissing = Boolean(opts.resetIfMissing);
+            const root = opts.root !== undefined ? opts.root : rootWidget.value;
+            const project = opts.project !== undefined ? opts.project : projectWidget.value;
+            const shot = opts.shot !== undefined ? opts.shot : shotWidget.value;
             if (!root || !isUsableName(project) || !isUsableName(shot)) {
-                keepValueInOptions(folderWidget, ["comfy/comp"]);
-                return;
+                keepValueInOptions(folderWidget, ["comfy/comp"], false);
+                folderWidget.value = "comfy/comp";
+                return "";
             }
-            const items = await fetchJson(
+            const folders = await fetchJson(
                 `/digit/folders?root=${encodeURIComponent(root)}&project=${encodeURIComponent(project)}&shot=${encodeURIComponent(shot)}`
             );
-            if (gen !== refreshGen) return;
-            keepValueInOptions(folderWidget, seedFolders(items));
+            if (gen !== refreshGen) return "";
+            const usable = isSentinelList(folders) ? ["comfy/comp"] : seedFolders(folders);
+            keepValueInOptions(folderWidget, usable, !resetIfMissing);
+            if (resetIfMissing && !usable.includes(folderWidget.value)) {
+                folderWidget.value = "comfy/comp";
+            }
             if (!isUsableName(folderWidget.value)) {
                 folderWidget.value = "comfy/comp";
             }
-        }
-
-        async function refreshDestination(gen) {
-            if (folderWidget) {
-                await refreshFolders(gen);
-                return;
-            }
-            await refreshSubfolders(gen);
-            if (gen !== refreshGen) return;
-            await refreshTasks(gen);
-        }
-
-        async function refreshHealth(gen) {
-            try {
-                const resp = await api.fetchApi("/digit/health");
-                if (gen !== refreshGen) return null;
-                const payload = await resp.json();
-                if (!payload || !payload.ok) {
-                    return "PROJEKTS storage degraded. Refresh to retry.";
-                }
-                const count = (payload.roots || []).reduce((sum, item) => sum + (item.project_count || 0), 0);
-                return `PROJEKTS OK — ${count} project${count === 1 ? "" : "s"}`;
-            } catch (_err) {
-                return null;
-            }
+            node.setDirtyCanvas(true);
+            return "";
         }
 
         async function refreshAll() {
@@ -291,13 +401,13 @@ app.registerExtension({
                 if (isHasShotNode) {
                     shotWarning = await refreshShots(gen);
                     if (gen !== refreshGen) return;
-                    await refreshDestination(gen);
+                    await refreshFolders(gen);
                     if (gen !== refreshGen) return;
                 }
-                const health = await refreshHealth(gen);
                 if (gen !== refreshGen) return;
-                setStatus(shotWarning || projectWarning || health || "");
+                if (projectWarning || shotWarning) notify(shotWarning || projectWarning, true);
                 clearRetry();
+                scheduleOutputPreview();
             } catch (err) {
                 if (gen !== refreshGen) return;
                 const reason = err && err.status
@@ -318,10 +428,11 @@ app.registerExtension({
                 if (isHasShotNode) {
                     shotWarning = await refreshShots(gen, { resetIfMissing: true });
                     if (gen !== refreshGen) return;
-                    await refreshDestination(gen);
+                    await refreshFolders(gen, { resetIfMissing: true });
                 }
                 if (gen !== refreshGen) return;
-                setStatus(shotWarning || projectWarning);
+                if (projectWarning || shotWarning) notify(shotWarning || projectWarning, true);
+                scheduleOutputPreview(true);
             } catch (err) {
                 if (gen !== refreshGen) return;
                 scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
@@ -339,81 +450,104 @@ app.registerExtension({
                     resetIfMissing: true,
                 });
                 if (gen !== refreshGen) return;
-                await refreshDestination(gen);
+                await refreshFolders(gen, { resetIfMissing: true });
                 if (gen !== refreshGen) return;
-                setStatus(warning);
+                if (warning) notify(warning, true);
+                scheduleOutputPreview(true);
             } catch (err) {
                 if (gen !== refreshGen) return;
                 scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
             }
         }
 
+        const comboChangeTimers = new Map();
+        function scheduleComboChange(name, value, handler) {
+            const existing = comboChangeTimers.get(name);
+            if (existing) clearTimeout(existing);
+            comboChangeTimers.set(name, setTimeout(() => {
+                comboChangeTimers.delete(name);
+                handler(value);
+            }, 0));
+        }
+
         const origRootCallback = rootWidget.callback;
-        rootWidget.callback = async function(value) {
+        rootWidget.callback = function(value) {
             if (origRootCallback) origRootCallback.call(this, value);
-            await onRootChanged(value);
+            scheduleComboChange("projekts_root", value, onRootChanged);
         };
 
         const origProjectCallback = projectWidget.callback;
-        projectWidget.callback = async function(value) {
+        projectWidget.callback = function(value) {
             if (origProjectCallback) origProjectCallback.call(this, value);
-            await onProjectChanged(value);
+            scheduleComboChange("project", value, onProjectChanged);
         };
+
+        async function onShotChanged(value) {
+            if (!isHasShotNode) return;
+            if (value !== undefined) shotWidget.value = value;
+            clearRetry();
+            const gen = ++refreshGen;
+            try {
+                await refreshFolders(gen, { shot: shotWidget.value, resetIfMissing: true });
+                if (gen !== refreshGen) return;
+                scheduleOutputPreview(true);
+            } catch (err) {
+                if (gen !== refreshGen) return;
+                scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
+            }
+        }
 
         const origOnWidgetChanged = node.onWidgetChanged;
         node.onWidgetChanged = function(name, value, oldValue) {
             if (origOnWidgetChanged) origOnWidgetChanged.apply(this, arguments);
             if (value === oldValue) return;
-            if (name === "projekts_root") onRootChanged(value);
-            if (name === "project") onProjectChanged(value);
+            if (name === "projekts_root") {
+                scheduleComboChange(name, value, onRootChanged);
+            }
+            if (name === "project") {
+                scheduleComboChange(name, value, onProjectChanged);
+            }
+            if (name === "shot") {
+                scheduleComboChange(name, value, onShotChanged);
+            }
+            if (["folder", "filename", "name", "format", "start_frame", "frame_pad"].includes(name)) {
+                scheduleOutputPreview(true);
+            }
         };
 
         if (shotWidget) {
             const origShotCallback = shotWidget.callback;
-            shotWidget.callback = async function(value) {
+            shotWidget.callback = function(value) {
                 if (origShotCallback) origShotCallback.call(this, value);
-                if (value !== undefined) shotWidget.value = value;
-                if (shotPick && isUsableName(value)) shotPick.value = value;
-                clearRetry();
-                const gen = ++refreshGen;
-                try {
-                    await refreshDestination(gen);
-                } catch (err) {
-                    if (gen !== refreshGen) return;
-                    scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
-                }
+                scheduleComboChange("shot", value, onShotChanged);
             };
         }
 
-        if (subfolderWidget) {
-            const origSubfolderCallback = subfolderWidget.callback;
-            subfolderWidget.callback = async function(value) {
-                if (origSubfolderCallback) origSubfolderCallback.call(this, value);
-                clearRetry();
-                const gen = ++refreshGen;
-                try {
-                    await refreshTasks(gen);
-                } catch (err) {
-                    if (gen !== refreshGen) return;
-                    scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
+        if (isUberSaver) {
+            const origOnConnectionsChange = node.onConnectionsChange;
+            node.onConnectionsChange = function() {
+                if (origOnConnectionsChange) {
+                    origOnConnectionsChange.apply(this, arguments);
                 }
+                scheduleOutputPreview(true);
             };
         }
 
         if (isHasShotNode) {
-            node.addWidget("button", "create_shot", "Create shot", async () => {
+            node.addWidget("button", "create_shot", "+ Shot", async () => {
                 const root = rootWidget.value;
                 const project = projectWidget.value;
-                const shot = (shotWidget.value || "").trim();
                 if (!root || !isUsableName(project)) {
-                    setStatus("Pick a project first.");
+                    notify("Pick a project first.", true);
                     return;
                 }
+                const typed = window.prompt("New shot name", "");
+                if (typed == null) return;
+                const shot = typed.trim();
                 if (!isUsableName(shot)) {
-                    setStatus("Type a shot name first.");
+                    notify("Type a shot name.", true);
                     return;
                 }
-                setStatus(`Creating shot ${shot}…`);
                 try {
                     const resp = await api.fetchApi("/digit/create_shot", {
                         method: "POST",
@@ -422,49 +556,47 @@ app.registerExtension({
                             root,
                             project,
                             shot,
-                            subfolder: subfolderWidget ? subfolderWidget.value : "",
-                            task: taskWidget ? taskWidget.value : "",
+                            folder: folderWidget && isUsableName(folderWidget.value)
+                                ? folderWidget.value
+                                : "comfy/comp",
                         }),
                     });
                     const payload = await resp.json();
                     if (resp.status !== 200) {
-                        setStatus((payload && payload.error) || `Create shot failed (${resp.status})`);
+                        notify((payload && payload.error) || `+ Shot failed (${resp.status})`, true);
                         return;
                     }
-                    shotWidget.value = payload.shot || shot;
-                    keepValueInOptions(shotCombo(), payload.shots || [shotWidget.value], false);
-                    if (shotPick) shotPick.value = shotWidget.value;
+                    const created = payload.shot || shot;
+                    keepValueInOptions(shotWidget, payload.shots || [created], false);
+                    shotWidget.value = created;
                     const gen = ++refreshGen;
-                    await refreshDestination(gen);
-                    if (gen !== refreshGen) return;
-                    setStatus(`Created shot ${shotWidget.value}`);
+                    await refreshFolders(gen, { shot: created });
                     node.setDirtyCanvas(true);
+                    scheduleOutputPreview(true);
+                    notify(`Created ${created}`);
                 } catch (_err) {
-                    setStatus("Create shot failed. Refresh PROJEKTS to retry.");
+                    notify("+ Shot failed. Click Refresh.", true);
                 }
             });
-        }
 
-        if (isUberSaver && folderWidget) {
             node.addWidget("button", "create_folder", "+ Folder", async () => {
                 const root = rootWidget.value;
                 const project = projectWidget.value;
-                const shot = shotWidget && shotWidget.value;
+                const shot = shotWidget.value;
                 if (!root || !isUsableName(project) || !isUsableName(shot)) {
-                    setStatus("Pick a project and shot first.");
+                    notify("Pick a project and shot first.", true);
                     return;
                 }
                 const typed = window.prompt(
-                    "Folder under this shot (example: comfy/comp/v001)",
-                    folderWidget.value || "comfy/comp"
+                    "Folder (e.g. comfy/comp, comfy/comp/v001, or plates)",
+                    folderWidget && folderWidget.value ? folderWidget.value : "comfy/comp"
                 );
-                if (typed === null) return;
+                if (typed == null) return;
                 const folder = typed.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
                 if (!folder) {
-                    setStatus("Type a folder path.");
+                    notify("Type a folder path.", true);
                     return;
                 }
-                setStatus(`Creating ${folder}…`);
                 try {
                     const resp = await api.fetchApi("/digit/create_folder", {
                         method: "POST",
@@ -473,23 +605,36 @@ app.registerExtension({
                     });
                     const payload = await resp.json();
                     if (resp.status !== 200) {
-                        setStatus((payload && payload.error) || `Create folder failed (${resp.status})`);
+                        notify((payload && payload.error) || `+ Folder failed (${resp.status})`, true);
                         return;
                     }
                     const created = payload.folder || folder;
-                    keepValueInOptions(folderWidget, seedFolders(payload.folders || [created]), false);
-                    folderWidget.value = created;
-                    setStatus(`Created ${created}`);
+                    if (folderWidget) {
+                        keepValueInOptions(folderWidget, seedFolders(payload.folders || [created]), false);
+                        folderWidget.value = created;
+                    }
                     node.setDirtyCanvas(true);
+                    scheduleOutputPreview(true);
+                    notify(`Created ${created}`);
                 } catch (_err) {
-                    setStatus("Create folder failed. Refresh PROJEKTS to retry.");
+                    notify("+ Folder failed. Click Refresh.", true);
                 }
             });
         }
 
-        node.addWidget("button", "refresh_projekts", "Refresh PROJEKTS", () => {
+        if (isUberSaver) {
+            const advancedButton = node.addWidget(
+                "button", "advanced", "Advanced", () => {
+                    setAdvancedVisible(!advancedVisible);
+                    advancedButton.value = advancedVisible
+                        ? "Hide Advanced"
+                        : "Advanced";
+                }
+            );
+        }
+
+        node.addWidget("button", "refresh_projekts", "Refresh", () => {
             clearRetry();
-            setStatus("Refreshing…");
             refreshAll();
         });
 
@@ -504,5 +649,16 @@ app.registerExtension({
         queueMicrotask(() => {
             if (!sawConfigure) refreshAll();
         });
+
+        if (isSaver) {
+            const origOnExecuted = node.onExecuted;
+            node.onExecuted = function(data) {
+                if (origOnExecuted) origOnExecuted.call(this, data);
+                if (data && Array.isArray(data.filepath_text) && data.filepath_text.length) {
+                    lastSavedPath = data.filepath_text[data.filepath_text.length - 1];
+                }
+                scheduleOutputPreview();
+            };
+        }
     }
 });

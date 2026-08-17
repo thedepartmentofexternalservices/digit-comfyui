@@ -22,6 +22,7 @@ logger = logging.getLogger("DigitVideoSaver")
 BATCH_VIDEO_NODE_TYPES = frozenset({
     "DigitDanceVideo",
     "DigitReplicateSeedance",
+    "DigitH3Video",
     "DigitVeoVideo",
     "DigitOmniVideo",
 })
@@ -35,6 +36,8 @@ BATCH_TEMP_GLOBS = {
     "replicate_seedance_": "replicate_seedance_{ts}_{uid}_*.mp4",
     "veo_": "veo_{ts}_{uid}_*.mp4",
     "omni_": "omni_{ts}_{uid}_*.mp4",
+    "h3_": "h3_{ts}_{uid}_*.mp4",
+    "minimax_": "minimax_{ts}_{uid}_*.mp4",
 }
 
 
@@ -152,9 +155,12 @@ class DigitVideoSaver:
             "required": {
                 "projekts_root": (available_roots,),
                 "project": (projects,),
-                "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
-                "subfolder": ("STRING", {"default": "comfy"}),
-                "task": ("STRING", {"default": "comp"}),
+                "shot": ([""],),
+                "folder": (["comfy/comp"],),
+                "filename": ("STRING", {
+                    "default": "",
+                    "tooltip": "What to name the file. Leave empty for PREFIX_SHOT_TASK. Frame number and extension are added.",
+                }),
                 "start_frame": ("INT", {"default": 1001, "min": 0, "max": 99999999, "step": 1}),
                 "frame_pad": ("INT", {"default": 4, "min": 1, "max": 8, "step": 1}),
                 "save_workflow": (["ui", "api", "ui + api", "none"],),
@@ -162,6 +168,8 @@ class DigitVideoSaver:
             "optional": {
                 "video": ("VIDEO",),
                 "video_paths": ("VIDEO_PATHS",),
+                "subfolder": ("STRING", {"default": "comfy"}),
+                "task": ("STRING", {"default": "comp"}),
             },
             "hidden": {
                 "prompt": "PROMPT",
