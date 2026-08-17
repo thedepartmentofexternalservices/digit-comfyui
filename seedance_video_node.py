@@ -222,7 +222,14 @@ def _audio_to_path(audio_obj, temp_dir):
 
 
 class DigitDanceVideo:
+    """DIGIT Dance / Seedance Video — Seedance 2.0 and Seedance 2.5."""
+
     CATEGORY = "DIGIT"
+    DESCRIPTION = (
+        "Digit Dance. Seedance 2.0 and Seedance 2.5 via fal, MUAPI, or Replicate. "
+        "Pick seedance-2.5 in the model dropdown for 30s clips, video edit/extend, "
+        "and MUAPI 4K."
+    )
     RETURN_TYPES = ("VIDEO", "VIDEO_PATHS", "STRING")
     RETURN_NAMES = ("video", "video_paths", "status")
     FUNCTION = "generate"

@@ -50,6 +50,39 @@ function widgetValue(node, name) {
     return w ? w.value : undefined;
 }
 
+function comboValuesFromNodeData(node, widgetName) {
+    const input = node.constructor?.nodeData?.input || {};
+    const spec = input.required?.[widgetName] || input.optional?.[widgetName];
+    const values = spec && spec[0];
+    return Array.isArray(values) ? values : null;
+}
+
+function syncComboFromNodeData(node, widgetName) {
+    const values = comboValuesFromNodeData(node, widgetName);
+    const widget = (node.widgets || []).find((w) => w.name === widgetName);
+    if (!widget || !values || !values.length) return;
+    if (!widget.options) widget.options = {};
+    widget.options.values = values;
+}
+
+// Saved Digit Dance nodes keep the combo list from the session that created
+// them. After a pack update, copy the live /object_info lists so seedance-2.5
+// (and 16–30s / video_task) show up without deleting the node.
+function syncSeedanceWidgets(node) {
+    for (const name of [
+        "model",
+        "duration",
+        "video_task",
+        "provider",
+        "resolution",
+        "muapi_route",
+        "bitrate_mode",
+        "aspect_ratio",
+    ]) {
+        syncComboFromNodeData(node, name);
+    }
+}
+
 function titleCase(name) {
     return name ? name.charAt(0).toUpperCase() + name.slice(1) : "";
 }
@@ -107,6 +140,8 @@ app.registerExtension({
 
     async nodeCreated(node) {
         if (node.comfyClass !== "DigitDanceVideo") return;
+
+        syncSeedanceWidgets(node);
 
         const strip = node.addWidget("text", "cost_estimate", "", () => {}, {
             multiline: true,
@@ -173,7 +208,19 @@ app.registerExtension({
             refresh();
         };
 
+        const onConfigure = node.onConfigure;
+        node.onConfigure = function (...args) {
+            if (onConfigure) onConfigure.apply(this, args);
+            syncSeedanceWidgets(node);
+            refresh();
+        };
+
         // First estimate once the node settles.
         setTimeout(refresh, 100);
+    },
+
+    async loadedGraphNode(node) {
+        if (node.comfyClass !== "DigitDanceVideo") return;
+        syncSeedanceWidgets(node);
     },
 });

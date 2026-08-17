@@ -22,7 +22,7 @@ This means:
 
 ## The Nodes
 
-**52 nodes** registered in v4.0.1 (including 1 deprecated alias). All appear under the **DIGIT** category unless noted.
+**52 nodes** registered in v4.1.0 (including 1 deprecated alias). All appear under the **DIGIT** category unless noted.
 
 | Family | Nodes |
 |--------|-------|
@@ -147,6 +147,8 @@ Every Veo video generation — whether through Google's AI Studio, the web conso
 ---
 
 ### DIGIT Seedance Video
+
+Node menu name: **DIGIT Seedance Video (2.0 / 2.5)** (class `DigitDanceVideo`, still called Digit Dance). Seedance 2.5 is the `seedance-2.5` item on the **model** dropdown, not a separate node. Saved Digit Dance nodes pick up new model/duration lists after a pack update plus a browser hard-refresh.
 
 Generate videos with ByteDance's Seedance 2.0 or 2.5 through your choice of three API providers — one node, one `provider` dropdown. Mode auto-detects from connected inputs, same as the Veo node:
 

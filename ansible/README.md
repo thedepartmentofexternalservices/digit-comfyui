@@ -3,6 +3,18 @@
 This repo does **not** contain your dxs Ansible inventory or vault. You develop
 `comfyui-digit` here; Ansible on your side configures VMs, secrets, and deploy.
 
+## Seedance 2.5 pin (GCP Digit Dance)
+
+`roles/comfyui_gcp/defaults/main.yml` must pin `comfyui-digit` at **`4362875` or later** (PR #23, `Add Seedance 2.5 ...`). The older pin `6afeac6` only ships `seedance-2.0` and `seedance-2.0-fast`, so Digit Dance on those VMs has no 2.5 in the model dropdown.
+
+After bumping the pin:
+
+1. Run the custom_nodes sync (or `./scripts/deploy-gcp-comfyui.sh`).
+2. Restart ComfyUI on the VM.
+3. Hard-refresh the browser (saved Digit Dance nodes keep the old combo list until then).
+
+Stopped GCP boxes need the same pull when they start. Confirm with `GET /digit/health` — `seedance_models` must include `seedance-2.5`.
+
 ## How the pieces fit
 
 ```text

@@ -148,7 +148,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DigitElevenLabsVoiceClone": "DIGIT ElevenLabs Voice Clone",
     "DigitElevenLabsSTS": "DIGIT ElevenLabs Speech to Speech",
     "DigitElevenLabsDialogue": "DIGIT ElevenLabs Dialogue",
-    "DigitDanceVideo": "DIGIT Seedance Video",
+    "DigitDanceVideo": "DIGIT Seedance Video (2.0 / 2.5)",
     "DigitReplicateSeedance": "DIGIT Seedance Video (Replicate) [deprecated]",
     "DigitH3Video": "DIGIT MiniMax Video",
     "DigitMuSeedanceCharacter": "DIGIT MU Seedance 2 Character",
