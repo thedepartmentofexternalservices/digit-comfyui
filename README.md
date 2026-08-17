@@ -980,12 +980,21 @@ cd comfyui-digit
 pip install -r requirements.txt
 ```
 
-### Deploy to GCP ComfyUI VMs
-If your fleet runs ComfyUI on Compute Engine with `comfyui-digit` cloned into `custom_nodes`, update all nodes from a machine with `gcloud` access:
+### Deploy to every ComfyUI install
+
+Fleet machines must track GitHub `master`, not a SHA pin. From a machine with `gcloud` access:
 
 ```bash
 gcloud config set project YOUR_PROJECT_ID
 ./scripts/deploy-gcp-comfyui.sh
+```
+
+That resets **every** `comfyui-digit` checkout on each running `comfy*` VM to `origin/master` (cherry-picks included) and restarts `comfyui`. Stopped VMs are listed, not started.
+
+On Flame, studio, or a Mac (paths auto-discovered, including Easy-Install):
+
+```bash
+./scripts/sync-comfyui-digit.sh
 ```
 
 Common overrides:
@@ -997,11 +1006,11 @@ INSTANCE_FILTER="labels.app=comfyui" ./scripts/deploy-gcp-comfyui.sh
 # Private VMs without external IPs
 USE_IAP=1 ./scripts/deploy-gcp-comfyui.sh
 
-# Custom install path or service name
-DIGIT_NODE_DIR="/opt/ComfyUI/custom_nodes/comfyui-digit" COMFYUI_SERVICE=comfyui ./scripts/deploy-gcp-comfyui.sh
+# Pin the remote path instead of auto-discovery
+DIGIT_NODE_DIR="/opt/comfyui/custom_nodes/comfyui-digit" ./scripts/deploy-gcp-comfyui.sh
 ```
 
-The script runs `git pull` on each matching VM and restarts the `comfyui` systemd service.
+Artists: hard-refresh the ComfyUI tab after the service comes back. Ansible must use `version: master` and `force: true` so the next `custom_nodes` play does not rewind the fleet. See [`ansible/README.md`](ansible/README.md).
 
 ---
 
