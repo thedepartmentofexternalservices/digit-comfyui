@@ -5,7 +5,7 @@ This repo does **not** contain your dxs Ansible inventory or vault. You develop
 
 ## Fleet pin: always `master`
 
-Do **not** pin `comfyui-digit` to a SHA. The old pin `6afeac6` is why GCP Digit Dance was missing Seedance 2.5. Track GitHub `master` and force-reset local checkouts.
+Do **not** pin `comfyui-digit` to a SHA. `6afeac6` was pre-2.5. `0d9e8e8` (MiniMax H3) is not an ancestor of Seedance 2.5 (`#23`). Either pin rewinds Digit Dance. Track GitHub `master` and force-reset local checkouts. Live master (`c2ddf10`) already has MiniMax (`#15`) and 2.5.
 
 In `roles/comfyui_gcp/defaults/main.yml` (digit-infra-ansible):
 
