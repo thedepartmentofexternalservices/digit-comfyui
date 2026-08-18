@@ -18,6 +18,9 @@ logger = logging.getLogger("DigitMuapiClient")
 
 API_BASE_URL = "https://api.muapi.ai/api/v1"
 UPLOAD_URL = f"{API_BASE_URL}/upload_file"
+# MUAPI rejects image uploads over 10MB. Keep 1MB of headroom.
+MAX_UPLOAD_BYTES = 9_000_000
+JPEG_FALLBACK_QUALITY = 95
 POLL_INTERVAL_SECONDS = 3
 MAX_WAIT_SECONDS = 20 * 60
 TERMINAL_FAILURE_STATES = {"failed", "cancelled"}
@@ -95,8 +98,8 @@ def response_json(response, operation):
         raise RuntimeError(f"{operation} returned invalid JSON: {preview}") from error
 
 
-def _tensor_to_png_bytes(image_tensor):
-    """Convert the first image in a ComfyUI IMAGE batch to PNG bytes."""
+def _tensor_to_pil_image(image_tensor):
+    """Convert the first image in a ComfyUI IMAGE batch to a PIL RGB image."""
     if image_tensor is None or image_tensor.ndim != 4 or image_tensor.shape[0] < 1:
         raise ValueError("Image input must be a non-empty ComfyUI IMAGE batch.")
 
@@ -104,13 +107,59 @@ def _tensor_to_png_bytes(image_tensor):
     image_array = (image_array * 255).clip(0, 255).astype(np.uint8)
 
     if image_array.shape[-1] == 4:
-        image = Image.fromarray(image_array, mode="RGBA").convert("RGB")
-    else:
-        image = Image.fromarray(image_array, mode="RGB")
+        return Image.fromarray(image_array, mode="RGBA").convert("RGB")
+    return Image.fromarray(image_array, mode="RGB")
 
+
+def _encode_image(image, image_format, **save_params):
+    """Encode a PIL image to bytes."""
     buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
+    image.save(buffer, format=image_format, **save_params)
     return buffer.getvalue()
+
+
+def _tensor_to_png_bytes(image_tensor):
+    """Convert the first image in a ComfyUI IMAGE batch to PNG bytes."""
+    return _encode_image(_tensor_to_pil_image(image_tensor), "PNG")
+
+
+def _tensor_to_upload_file(image_tensor):
+    """Encode the first image in a ComfyUI IMAGE batch for upload.
+
+    Returns (file_bytes, extension, content_type). Uses PNG when it fits
+    under MAX_UPLOAD_BYTES; otherwise falls back to JPEG, downscaling as a
+    last resort, so uploads stay under MUAPI's 10MB limit.
+    """
+    image = _tensor_to_pil_image(image_tensor)
+    png_bytes = _encode_image(image, "PNG")
+    if len(png_bytes) <= MAX_UPLOAD_BYTES:
+        return png_bytes, "png", "image/png"
+
+    jpeg_bytes = _encode_image(image, "JPEG", quality=JPEG_FALLBACK_QUALITY)
+    logger.info(
+        "[DIGIT MUAPI] PNG encoding is %d bytes (limit %d); "
+        "falling back to JPEG quality %d (%d bytes).",
+        len(png_bytes),
+        MAX_UPLOAD_BYTES,
+        JPEG_FALLBACK_QUALITY,
+        len(jpeg_bytes),
+    )
+
+    while len(jpeg_bytes) > MAX_UPLOAD_BYTES and min(image.size) > 1:
+        image = image.resize(
+            (max(1, image.width // 2), max(1, image.height // 2)),
+            Image.LANCZOS,
+        )
+        jpeg_bytes = _encode_image(image, "JPEG", quality=JPEG_FALLBACK_QUALITY)
+        logger.warning(
+            "[DIGIT MUAPI] JPEG still over %d bytes; downscaled to %dx%d (%d bytes).",
+            MAX_UPLOAD_BYTES,
+            image.width,
+            image.height,
+            len(jpeg_bytes),
+        )
+
+    return jpeg_bytes, "jpg", "image/jpeg"
 
 
 def _upload_bytes(headers, file_bytes, filename, content_type):
@@ -136,9 +185,9 @@ def upload_image_bytes(headers, png_bytes, label="image"):
 
 def upload_image_tensor(headers, image_tensor, label="image"):
     """Upload the first frame of a ComfyUI IMAGE batch. Returns URL."""
-    png_bytes = _tensor_to_png_bytes(image_tensor)
-    name = f"digit_{label}_{uuid.uuid4().hex[:8]}.png"
-    return _upload_bytes(headers, png_bytes, name, "image/png")
+    file_bytes, extension, content_type = _tensor_to_upload_file(image_tensor)
+    name = f"digit_{label}_{uuid.uuid4().hex[:8]}.{extension}"
+    return _upload_bytes(headers, file_bytes, name, content_type)
 
 
 def upload_video(headers, video_obj, temp_dir, label="video"):
