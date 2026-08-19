@@ -8,13 +8,13 @@ import folder_paths
 import numpy as np
 
 logger = logging.getLogger("DigitImageSaver")
+PREVIEW_MAX_EDGE = 2048
 from aiohttp import web
 from PIL import Image, PngImagePlugin
 from server import PromptServer
 
 from .projekts_utils import (
     SENTINEL_NO_SHOTS,
-    combo_choices,
     create_folder_dir,
     create_shot_dir,
     get_available_projekts_roots,
@@ -67,7 +67,8 @@ async def get_projects(request):
     root = _constrained_root(request.rel_url.query.get("root", ""))
     if not root:
         return web.json_response([], status=403)
-    return _json_scan(scan_projects(root))
+    refresh = request.rel_url.query.get("refresh") == "1"
+    return _json_scan(scan_projects(root, refresh=refresh))
 
 
 @PromptServer.instance.routes.get("/digit/shots")
@@ -78,7 +79,8 @@ async def get_shots(request):
     project = request.rel_url.query.get("project", "")
     if not project:
         return web.json_response([SENTINEL_NO_SHOTS], status=400)
-    return _json_scan(scan_shots(root, project))
+    refresh = request.rel_url.query.get("refresh") == "1"
+    return _json_scan(scan_shots(root, project, refresh=refresh))
 
 
 def _pack_version():
@@ -124,7 +126,8 @@ async def get_subfolders(request):
     shot = request.rel_url.query.get("shot", "")
     if not project or not shot:
         return web.json_response([""], status=400)
-    return _json_scan(scan_child_folders(root, project, shot))
+    refresh = request.rel_url.query.get("refresh") == "1"
+    return _json_scan(scan_child_folders(root, project, shot, refresh=refresh))
 
 
 @PromptServer.instance.routes.get("/digit/tasks")
@@ -137,7 +140,10 @@ async def get_tasks(request):
     subfolder = request.rel_url.query.get("subfolder", "")
     if not project or not shot or not subfolder:
         return web.json_response([""], status=400)
-    return _json_scan(scan_child_folders(root, project, shot, subfolder))
+    refresh = request.rel_url.query.get("refresh") == "1"
+    return _json_scan(
+        scan_child_folders(root, project, shot, subfolder, refresh=refresh)
+    )
 
 
 @PromptServer.instance.routes.get("/digit/folders")
@@ -271,14 +277,12 @@ class DigitImageSaver:
     @classmethod
     def INPUT_TYPES(cls):
         available_roots = get_available_projekts_roots() or [""]
-        first_root = available_roots[0]
-        projects = combo_choices(scan_projects(first_root)) if first_root else [""]
 
         return {
             "required": {
                 "image": ("IMAGE",),
                 "projekts_root": (available_roots,),
-                "project": (projects,),
+                "project": ([""],),
                 "shot": ([""],),
                 "folder": (["comfy/comp"],),
                 "filename": ("STRING", {
@@ -371,7 +375,12 @@ class DigitImageSaver:
                 preview_name = f"digit_preview_{filename}"
                 preview_path = os.path.join(temp_dir, preview_name)
                 img_8bit = np.clip(255.0 * img_np[:, :, :3], 0, 255).astype(np.uint8)
-                Image.fromarray(img_8bit, mode="RGB").save(preview_path, format="PNG")
+                preview_image = Image.fromarray(img_8bit, mode="RGB")
+                preview_image.thumbnail(
+                    (PREVIEW_MAX_EDGE, PREVIEW_MAX_EDGE),
+                    Image.Resampling.LANCZOS,
+                )
+                preview_image.save(preview_path, format="PNG")
                 ui_images.append({"filename": preview_name, "subfolder": "", "type": "temp"})
 
             last_filepath = filepath

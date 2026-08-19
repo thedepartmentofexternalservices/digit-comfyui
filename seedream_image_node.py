@@ -21,6 +21,7 @@ import requests as http_requests
 import torch
 from PIL import Image
 
+from . import media_sanitize
 from .seedream_image_models import (
     CUSTOM_DIM_MAX,
     CUSTOM_DIM_MIN,
@@ -74,8 +75,14 @@ def _tensor_to_png_bytes(tensor):
 
 def _upload_image_tensor(fal_client, image_tensor):
     """Upload the first frame of a ComfyUI IMAGE batch to fal storage, return URL."""
-    png_bytes = _tensor_to_png_bytes(image_tensor[0])
-    return fal_client.upload(png_bytes, content_type="image/png")
+    result = media_sanitize.sanitize_image_batch(
+        image_tensor,
+        max_edge=None,
+        max_bytes=None,
+        label="seedream_reference",
+        route="fal:seedream/edit",
+    )
+    return fal_client.upload(result.data, content_type=result.content_type)
 
 
 def _image_bytes_to_tensor(image_bytes):
@@ -441,7 +448,10 @@ class DigitSeedreamImage:
                 image_items = [result["image"]]
 
         if not image_items:
-            logger.error(f"[DigitSeedream] Could not extract image URLs from result: {result}")
+            logger.error(
+                "[DigitSeedream] Result contained no image field (keys=%s)",
+                sorted(result) if isinstance(result, dict) else type(result).__name__,
+            )
             return []
 
         tensors = []
@@ -453,7 +463,9 @@ class DigitSeedreamImage:
                 url = item
 
             if not url:
-                logger.warning(f"[DigitSeedream] Skipping image {i}: no URL found in {item}")
+                logger.warning(
+                    "[DigitSeedream] Skipping image %d: provider item has no URL", i
+                )
                 continue
 
             try:
@@ -464,7 +476,12 @@ class DigitSeedreamImage:
                     "[DigitSeedream] Downloaded image %d of job %d", i + 1, job_index + 1
                 )
             except Exception as e:
-                logger.error(f"[DigitSeedream] Failed to download {url}: {e}")
+                logger.error(
+                    "[DigitSeedream] Failed to download image %d of job %d: %s",
+                    i + 1,
+                    job_index + 1,
+                    e,
+                )
 
         return tensors
 

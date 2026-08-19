@@ -30,6 +30,39 @@ def test_scan_projects_empty_root():
         assert projekts_utils.scan_projects(root) == ["(no projects found)"]
 
 
+def test_scan_projects_uses_ttl_cache_and_refreshes(tmp_path, monkeypatch):
+    root = tmp_path / "PROJEKTS"
+    (root / "12345_first").mkdir(parents=True)
+    calls = {"count": 0}
+    original = projekts_utils.listdir_resilient
+
+    def counted(path, *args, **kwargs):
+        calls["count"] += 1
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(projekts_utils, "listdir_resilient", counted)
+    assert projekts_utils.scan_projects(str(root), refresh=True) == ["12345_first"]
+    assert projekts_utils.scan_projects(str(root)) == ["12345_first"]
+    assert calls["count"] == 1
+
+    (root / "23456_second").mkdir()
+    assert projekts_utils.scan_projects(str(root)) == ["12345_first"]
+    assert projekts_utils.scan_projects(str(root), refresh=True) == [
+        "12345_first",
+        "23456_second",
+    ]
+    assert calls["count"] == 2
+
+
+def test_invalidate_scan_cache_by_prefix(tmp_path):
+    root = tmp_path / "PROJEKTS"
+    (root / "12345_first").mkdir(parents=True)
+    projekts_utils.scan_projects(str(root), refresh=True)
+    assert projekts_utils._scan_cache
+    projekts_utils.invalidate_scan_cache("projects", str(root))
+    assert ("projects", str(root)) not in projekts_utils._scan_cache
+
+
 def test_scan_shots_lists_shot_folders():
     with tempfile.TemporaryDirectory() as root:
         shots_dir = os.path.join(root, "12345_demo", "shots")

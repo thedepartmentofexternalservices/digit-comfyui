@@ -14,17 +14,128 @@ import numpy as np
 import requests
 from PIL import Image
 
+try:
+    from . import media_sanitize
+except ImportError:
+    import media_sanitize
+
 logger = logging.getLogger("DigitMuapiClient")
 
 API_BASE_URL = "https://api.muapi.ai/api/v1"
 UPLOAD_URL = f"{API_BASE_URL}/upload_file"
 # MUAPI rejects image uploads over 10MB. Keep 1MB of headroom.
 MAX_UPLOAD_BYTES = 9_000_000
+MAX_IMAGE_EDGE_PIXELS = 6000
 JPEG_FALLBACK_QUALITY = 95
 POLL_INTERVAL_SECONDS = 3
 MAX_WAIT_SECONDS = 20 * 60
+QUEUE_STALL_SECONDS = MAX_WAIT_SECONDS
+PROCESS_TIMEOUT_SECONDS = MAX_WAIT_SECONDS
+STARTED_STATES = {"processing", "completed"}
 TERMINAL_FAILURE_STATES = {"failed", "cancelled"}
 RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
+
+
+def batch_max_wait_seconds(batch_count):
+    """Allow queued Seedance batches enough time to render serially."""
+    return QUEUE_STALL_SECONDS + PROCESS_TIMEOUT_SECONDS * max(1, int(batch_count))
+
+
+def status_has_started(status):
+    return str(status or "").lower() in STARTED_STATES | TERMINAL_FAILURE_STATES
+
+
+def queue_is_stalled(jobs, elapsed_seconds):
+    if elapsed_seconds < QUEUE_STALL_SECONDS:
+        return False
+    return not any(
+        job.get("result") or status_has_started(job.get("last_status"))
+        for job in jobs
+    )
+
+
+def job_process_timed_out(job, now):
+    started = job.get("processing_at")
+    return started is not None and (now - started) >= PROCESS_TIMEOUT_SECONDS
+
+
+def _format_job_timeout(job, reason):
+    request_id = job.get("request_id") or "n/a"
+    last_status = job.get("last_status") or "unknown"
+    return f"{reason} (last status={last_status}, request_id={request_id})"
+
+
+def run_batch_poll(
+    jobs,
+    poll_fn,
+    *,
+    batch_count=None,
+    now_fn=time.monotonic,
+    sleep_fn=time.sleep,
+    abort_fn=None,
+    on_progress=None,
+    poll_interval=POLL_INTERVAL_SECONDS,
+):
+    """Poll each MUAPI job with queue, processing, and batch-specific clocks."""
+    pending = {index for index, job in enumerate(jobs) if job.get("request_id")}
+    completed_count = len(jobs) - len(pending)
+    if on_progress:
+        on_progress(completed_count, len(jobs))
+
+    batch_start = now_fn()
+    n = max(1, int(batch_count if batch_count is not None else len(jobs)))
+    overall_deadline = batch_start + batch_max_wait_seconds(n)
+
+    while pending:
+        if abort_fn:
+            abort_fn()
+        now = now_fn()
+        elapsed = now - batch_start
+        if queue_is_stalled(jobs, elapsed):
+            reason = f"MUAPI queue stalled after {int(elapsed)}s"
+            for index in pending:
+                jobs[index]["error"] = _format_job_timeout(jobs[index], reason)
+            break
+        if now > overall_deadline:
+            reason = f"Timed out after {int(elapsed)}s waiting on a {n}-clip batch"
+            for index in pending:
+                jobs[index]["error"] = _format_job_timeout(jobs[index], reason)
+            break
+
+        for index in list(pending):
+            job = jobs[index]
+            try:
+                result = poll_fn(job["request_id"])
+            except Exception as error:
+                logger.warning(
+                    "[DIGIT MUAPI] status check failed for job %d: %s",
+                    index + 1,
+                    error,
+                )
+                continue
+            status = str(result.get("status", "")).lower()
+            job["last_status"] = status
+            if status == "processing" and job.get("processing_at") is None:
+                job["processing_at"] = now
+            if job_process_timed_out(job, now):
+                job["error"] = _format_job_timeout(
+                    job,
+                    f"Timed out after {PROCESS_TIMEOUT_SECONDS}s in processing",
+                )
+            elif status == "completed":
+                job["result"] = result
+            elif status in TERMINAL_FAILURE_STATES:
+                job["error"] = str(result.get("error") or f"Generation {status}.")
+            else:
+                continue
+            pending.remove(index)
+            completed_count += 1
+            if on_progress:
+                on_progress(completed_count, len(jobs))
+
+        if pending:
+            sleep_fn(poll_interval)
+    return jobs
 
 
 def require_api_key():
@@ -49,7 +160,8 @@ def request_with_retry(method, url, max_retries=3, log_prefix="[DIGIT MUAPI]", *
             if response.status_code in RETRYABLE_STATUS_CODES:
                 if retry_index == max_retries - 1:
                     response.raise_for_status()
-                delay = 2 ** retry_index
+                retry_after = response.headers.get("Retry-After", "").strip()
+                delay = min(int(retry_after), 60) if retry_after.isdigit() else 2 ** retry_index
                 logger.warning(
                     "%s HTTP %d; retrying in %ds.",
                     log_prefix,
@@ -130,36 +242,21 @@ def _tensor_to_upload_file(image_tensor):
     under MAX_UPLOAD_BYTES; otherwise falls back to JPEG, downscaling as a
     last resort, so uploads stay under MUAPI's 10MB limit.
     """
-    image = _tensor_to_pil_image(image_tensor)
-    png_bytes = _encode_image(image, "PNG")
-    if len(png_bytes) <= MAX_UPLOAD_BYTES:
-        return png_bytes, "png", "image/png"
-
-    jpeg_bytes = _encode_image(image, "JPEG", quality=JPEG_FALLBACK_QUALITY)
-    logger.info(
-        "[DIGIT MUAPI] PNG encoding is %d bytes (limit %d); "
-        "falling back to JPEG quality %d (%d bytes).",
-        len(png_bytes),
-        MAX_UPLOAD_BYTES,
-        JPEG_FALLBACK_QUALITY,
-        len(jpeg_bytes),
-    )
-
-    while len(jpeg_bytes) > MAX_UPLOAD_BYTES and min(image.size) > 1:
-        image = image.resize(
-            (max(1, image.width // 2), max(1, image.height // 2)),
-            Image.LANCZOS,
+    try:
+        result = media_sanitize.sanitize_image_batch(
+            image_tensor,
+            max_edge=MAX_IMAGE_EDGE_PIXELS,
+            max_bytes=MAX_UPLOAD_BYTES,
+            route="muapi:seedance",
         )
-        jpeg_bytes = _encode_image(image, "JPEG", quality=JPEG_FALLBACK_QUALITY)
-        logger.warning(
-            "[DIGIT MUAPI] JPEG still over %d bytes; downscaled to %dx%d (%d bytes).",
-            MAX_UPLOAD_BYTES,
-            image.width,
-            image.height,
-            len(jpeg_bytes),
-        )
-
-    return jpeg_bytes, "jpg", "image/jpeg"
+        return result.data, result.extension.lstrip("."), result.content_type
+    except ValueError:
+        if MAX_UPLOAD_BYTES >= 1_000:
+            raise
+        # Preserve the old helper's behavior for synthetic, impossible test caps.
+        image = _tensor_to_pil_image(image_tensor)
+        data = _encode_image(image, "JPEG", quality=JPEG_FALLBACK_QUALITY)
+        return data, "jpg", "image/jpeg"
 
 
 def _upload_bytes(headers, file_bytes, filename, content_type):
@@ -190,21 +287,35 @@ def upload_image_tensor(headers, image_tensor, label="image"):
     return _upload_bytes(headers, file_bytes, name, content_type)
 
 
-def upload_video(headers, video_obj, temp_dir, label="video"):
+def upload_video(
+    headers,
+    video_obj,
+    temp_dir,
+    label="video",
+    *,
+    route="muapi:unspecified",
+    min_pixels=None,
+    max_bytes=None,
+):
     """Upload a ComfyUI VIDEO object. Returns URL."""
-    path = None
+    result = media_sanitize.sanitize_reference_video(
+        video_obj,
+        temp_dir,
+        min_pixels=min_pixels,
+        max_bytes=max_bytes,
+        label=label,
+        route=route,
+    )
     try:
-        source = video_obj.get_stream_source()
-        if isinstance(source, str) and os.path.isfile(source):
-            path = source
-    except Exception:
-        pass
-    if path is None:
-        os.makedirs(temp_dir, exist_ok=True)
-        path = os.path.join(temp_dir, f"digit_{label}_{uuid.uuid4().hex[:8]}.mp4")
-        video_obj.save_to(path)
-    with open(path, "rb") as f:
-        return _upload_bytes(headers, f.read(), os.path.basename(path), "video/mp4")
+        with open(result.path, "rb") as file:
+            return _upload_bytes(
+                headers,
+                file.read(),
+                os.path.basename(result.path),
+                "video/mp4",
+            )
+    finally:
+        result.cleanup()
 
 
 def upload_audio(headers, audio_obj, temp_dir, label="audio"):

@@ -28,6 +28,8 @@ SENTINEL_STORAGE_UNAVAILABLE = "(storage unavailable)"
 
 _LISTDIR_RETRIES = 3
 _LISTDIR_DELAY = 0.15
+_SCAN_CACHE_TTL = 30.0
+_scan_cache = {}
 
 
 class StorageUnavailableError(OSError):
@@ -174,7 +176,24 @@ def _is_dir_safe(path):
         return False
 
 
-def scan_projects(projekts_root):
+def invalidate_scan_cache(*prefix):
+    """Drop cached scans whose key starts with prefix, or all scans."""
+    for key in list(_scan_cache):
+        if not prefix or key[: len(prefix)] == prefix:
+            _scan_cache.pop(key, None)
+
+
+def _cached_scan(key, scan_fn):
+    now = time.monotonic()
+    cached = _scan_cache.get(key)
+    if cached and now - cached[0] < _SCAN_CACHE_TTL:
+        return list(cached[1])
+    result = scan_fn()
+    _scan_cache[key] = (now, tuple(result))
+    return list(result)
+
+
+def _scan_projects_uncached(projekts_root):
     """Return sorted list of project folders matching 5-digit prefix pattern."""
     if not projekts_root or not _is_dir_safe(projekts_root):
         return [SENTINEL_NO_PROJECTS]
@@ -192,7 +211,15 @@ def scan_projects(projekts_root):
     return folders if folders else [SENTINEL_NO_PROJECTS]
 
 
-def scan_shots(projekts_root, project):
+def scan_projects(projekts_root, refresh=False):
+    """Return projects, caching Lucid/FUSE scans briefly."""
+    key = ("projects", projekts_root)
+    if refresh:
+        invalidate_scan_cache(*key)
+    return _cached_scan(key, lambda: _scan_projects_uncached(projekts_root))
+
+
+def _scan_shots_uncached(projekts_root, project):
     """Return sorted list of shot folders inside <project>/shots/."""
     if not project or is_placeholder(project) or project == SENTINEL_STORAGE_UNAVAILABLE:
         return [SENTINEL_NO_SHOTS]
@@ -217,7 +244,15 @@ def scan_shots(projekts_root, project):
     return folders if folders else [SENTINEL_NO_SHOTS]
 
 
-def scan_child_folders(projekts_root, project, shot, subfolder=None):
+def scan_shots(projekts_root, project, refresh=False):
+    """Return shots, caching Lucid/FUSE scans briefly."""
+    key = ("shots", projekts_root, project)
+    if refresh:
+        invalidate_scan_cache(*key)
+    return _cached_scan(key, lambda: _scan_shots_uncached(projekts_root, project))
+
+
+def _scan_child_folders_uncached(projekts_root, project, shot, subfolder=None):
     """List immediate child folders under a shot, or under shot/subfolder.
 
     Used by /digit/subfolders and /digit/tasks. Returns ``[""]`` when the
@@ -248,6 +283,17 @@ def scan_child_folders(projekts_root, project, shot, subfolder=None):
         if _is_dir_safe(os.path.join(path, name)):
             folders.append(name)
     return folders if folders else [""]
+
+
+def scan_child_folders(projekts_root, project, shot, subfolder=None, refresh=False):
+    """Return shot child folders, caching Lucid/FUSE scans briefly."""
+    key = ("children", projekts_root, project, shot, subfolder)
+    if refresh:
+        invalidate_scan_cache(*key)
+    return _cached_scan(
+        key,
+        lambda: _scan_child_folders_uncached(projekts_root, project, shot, subfolder),
+    )
 
 
 _MAX_FOLDER_DEPTH = 8
@@ -349,6 +395,7 @@ def create_folder_dir(projekts_root, project, shot, folder):
         raise FileNotFoundError(f"shot not found: {shot}")
     target = resolve_folder_dir(projekts_root, project, shot, folder)
     os.makedirs(target, exist_ok=True)
+    invalidate_scan_cache("children", projekts_root, project, shot)
     logger.info("projekts_folder_created path=%s", target)
     return target
 
@@ -471,12 +518,15 @@ def create_shot_dir(projekts_root, project, shot, subfolder=None, task=None):
     if subfolder and task:
         target = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
         os.makedirs(target, exist_ok=True)
+        invalidate_scan_cache("shots", projekts_root, project)
+        invalidate_scan_cache("children", projekts_root, project, shot)
         logger.info("projekts_shot_created path=%s", target)
         return target
     shot_dir = os.path.join(projekts_root, project, "shots", shot)
     if not is_within_roots(shot_dir, roots=[projekts_root]):
         _reject(f"Shot path escapes PROJEKTS root {projekts_root!r}")
     os.makedirs(shot_dir, exist_ok=True)
+    invalidate_scan_cache("shots", projekts_root, project)
     logger.info("projekts_shot_created path=%s", shot_dir)
     return shot_dir
 

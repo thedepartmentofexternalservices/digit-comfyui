@@ -18,7 +18,6 @@ Cost estimates surface on the node via web/digit_seedance_cost.js and the
 /digit/seedance/estimate route registered below.
 """
 
-import io
 import logging
 import os
 import random
@@ -27,14 +26,12 @@ import urllib.request
 import uuid
 
 import comfy.utils
-import numpy as np
-from PIL import Image as PILImage
-
 import folder_paths
 
 try:
-    from . import muapi_client, seedance_pricing
+    from . import media_sanitize, muapi_client, seedance_pricing
 except ImportError:  # standalone import (tests, linting)
+    import media_sanitize
     import muapi_client
     import seedance_pricing
 
@@ -81,6 +78,10 @@ MAX_BATCH_COUNT = 8
 MAX_AUTOMATIC_RETRIES = 3
 POLL_INTERVAL_SECONDS = 2.0
 MAX_SEED = 2147483647
+SEEDANCE_IMAGE_MAX_EDGE = 6000
+SEEDANCE_IMAGE_MAX_BYTES = 9_000_000
+SEEDANCE_R2V_MIN_PIXELS = 407_696
+SEEDANCE_R2V_MAX_BYTES = 50_000_000
 
 # fal's fine-grained retry header is ignored on public model endpoints. Disable
 # platform retries and coordinate at most three retries here so the limit is real.
@@ -100,35 +101,50 @@ def _is_content_policy_error(error):
 
 
 def _tensor_to_png_bytes(tensor):
-    """Convert a single (H,W,C) float32 0-1 image tensor to PNG bytes."""
-    img_np = tensor.cpu().numpy()
-    img_np = (img_np * 255).clip(0, 255).astype(np.uint8)
-    img = PILImage.fromarray(img_np)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+    """Convert a single tensor to route-safe Seedance image bytes."""
+    batch = tensor[None, ...] if getattr(tensor, "ndim", None) == 3 else tensor
+    return media_sanitize.sanitize_image_batch(
+        batch,
+        max_edge=SEEDANCE_IMAGE_MAX_EDGE,
+        max_bytes=SEEDANCE_IMAGE_MAX_BYTES,
+        route="seedance:image-reference",
+    ).data
 
 
-def _upload_image_tensor(fal_client, image_tensor):
+def _upload_image_tensor(fal_client, image_tensor, label="image"):
     """Upload the first frame of a ComfyUI IMAGE batch to fal storage, return URL."""
-    png_bytes = _tensor_to_png_bytes(image_tensor[0])
-    return fal_client.upload(png_bytes, content_type="image/png")
+    result = media_sanitize.sanitize_image_batch(
+        image_tensor,
+        max_edge=SEEDANCE_IMAGE_MAX_EDGE,
+        max_bytes=SEEDANCE_IMAGE_MAX_BYTES,
+        label=label,
+        route="fal:seedance",
+    )
+    return fal_client.upload(result.data, content_type=result.content_type)
 
 
-def _upload_video(fal_client, video_obj):
+def _upload_video(
+    fal_client,
+    video_obj,
+    *,
+    label="video",
+    route="fal:seedance",
+    min_pixels=None,
+):
     """Upload a ComfyUI VIDEO object to fal storage and return its URL."""
-    try:
-        source = video_obj.get_stream_source()
-        if isinstance(source, str) and os.path.isfile(source):
-            return fal_client.upload_file(source)
-    except Exception:
-        pass
-
     temp_dir = folder_paths.get_temp_directory()
-    os.makedirs(temp_dir, exist_ok=True)
-    tmp_path = os.path.join(temp_dir, f"dance_upload_{uuid.uuid4().hex[:8]}.mp4")
-    video_obj.save_to(tmp_path)
-    return fal_client.upload_file(tmp_path)
+    result = media_sanitize.sanitize_reference_video(
+        video_obj,
+        temp_dir,
+        min_pixels=min_pixels,
+        max_bytes=SEEDANCE_R2V_MAX_BYTES,
+        label=label,
+        route=route,
+    )
+    try:
+        return fal_client.upload_file(result.path)
+    finally:
+        result.cleanup()
 
 
 def _upload_audio(fal_client, audio_obj):
@@ -156,11 +172,20 @@ def _upload_audio(fal_client, audio_obj):
 
 def _tensor_to_png_path(tensor, temp_dir):
     """Write a single (H,W,C) float32 0-1 image tensor to a PNG file. Returns path."""
-    img_np = tensor.cpu().numpy()
-    img_np = (img_np * 255).clip(0, 255).astype(np.uint8)
-    img = PILImage.fromarray(img_np)
-    path = os.path.join(temp_dir, f"replicate_seedance_img_{uuid.uuid4().hex[:8]}.png")
-    img.save(path, format="PNG")
+    batch = tensor[None, ...] if getattr(tensor, "ndim", None) == 3 else tensor
+    result = media_sanitize.sanitize_image_batch(
+        batch,
+        max_edge=SEEDANCE_IMAGE_MAX_EDGE,
+        max_bytes=SEEDANCE_IMAGE_MAX_BYTES,
+        label="replicate_reference",
+        route="replicate:seedance",
+    )
+    path = os.path.join(
+        temp_dir,
+        f"replicate_seedance_img_{uuid.uuid4().hex[:8]}{result.extension}",
+    )
+    with open(path, "wb") as file:
+        file.write(result.data)
     return path
 
 
@@ -202,6 +227,91 @@ def _with_role_prefix(prompt, prefixes):
     if "extend @video1" in lowered or "extend @video 1" in lowered:
         return text
     return prefixes[0] + text
+
+
+def _normalized_duration(duration):
+    if duration in (None, "", "auto", "same_as_input", -1, "-1"):
+        return None
+    try:
+        value = int(duration)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"Invalid Seedance duration: {duration!r}.") from error
+    return value if value > 0 else None
+
+
+def _build_fal_payload(
+    *, prompt, resolution, aspect_ratio, duration, generate_audio, bitrate_mode
+):
+    return {
+        "prompt": prompt.strip(),
+        "resolution": resolution,
+        "aspect_ratio": aspect_ratio,
+        "duration": "auto" if _normalized_duration(duration) is None else str(int(duration)),
+        "generate_audio": bool(generate_audio),
+        "bitrate_mode": bitrate_mode,
+    }
+
+
+def _build_replicate_payload(
+    *, prompt, resolution, aspect_ratio, duration, generate_audio, negative_prompt=""
+):
+    payload = {
+        "prompt": prompt.strip(),
+        "resolution": resolution,
+        "aspect_ratio": "adaptive" if aspect_ratio == "auto" else aspect_ratio,
+        "duration": -1 if _normalized_duration(duration) is None else int(duration),
+        "audio": bool(generate_audio),
+    }
+    if negative_prompt and negative_prompt.strip():
+        payload["negative_prompt"] = negative_prompt.strip()
+    return payload
+
+
+def _build_muapi_payload(
+    *,
+    prompt,
+    duration,
+    resolution,
+    aspect_ratio,
+    endpoint,
+    mode,
+    generate_audio,
+    bitrate_mode,
+):
+    """Build MUAPI scalar fields without duration or aspect sentinels."""
+    payload = {"prompt": prompt.strip()}
+    normalized_duration = _normalized_duration(duration)
+    if normalized_duration is not None:
+        payload["duration"] = normalized_duration
+    endpoint_is_25 = endpoint.startswith("seedance-2.5")
+    if not endpoint_is_25 and not endpoint.endswith(("-1080p", "-4k", "-480p")):
+        payload["resolution"] = resolution
+    if mode == "video_extend":
+        payload["aspect_ratio"] = "adaptive"
+    elif aspect_ratio not in (None, "", "auto", "adaptive"):
+        payload["aspect_ratio"] = aspect_ratio
+    if endpoint_is_25 and mode in ("video_edit", "video_extend"):
+        payload["generate_audio"] = bool(generate_audio)
+    elif not endpoint_is_25 and mode != "first_last_frame":
+        payload["generate_audio"] = bool(generate_audio)
+        payload["high_bitrate"] = bitrate_mode == "high"
+    return payload
+
+
+def _validate_muapi_route_mode(endpoint, mode):
+    markers = {
+        "text_to_video": ("text-to-video",),
+        "image_to_video": ("image-to-video",),
+        "first_last_frame": ("first-last-frame",),
+        "reference_to_video": ("omni-reference", "reference-to-video"),
+        "video_edit": ("video-edit",),
+        "video_extend": ("video-extend",),
+    }
+    if not any(marker in endpoint for marker in markers[mode]):
+        raise ValueError(
+            f"MUAPI route '{endpoint}' does not support mode '{mode}'. "
+            "Use auto routing or select a matching route."
+        )
 
 
 def _audio_to_path(audio_obj, temp_dir):
@@ -536,30 +646,53 @@ class DigitDanceVideo:
         elif mode == "video_extend":
             fal_prompt = _with_role_prefix(fal_prompt, ["Extend @Video1 forward. "])
 
-        args = {
-            "prompt": fal_prompt,
-            "resolution": resolution,
-            "aspect_ratio": "auto" if inherit_aspect else aspect_ratio,
-            "duration": "auto" if inherit_duration else str(duration),
-            "generate_audio": generate_audio,
-        }
+        args = _build_fal_payload(
+            prompt=fal_prompt,
+            resolution=resolution,
+            aspect_ratio="auto" if inherit_aspect else aspect_ratio,
+            duration="auto" if inherit_duration else duration,
+            generate_audio=generate_audio,
+            bitrate_mode=bitrate_mode,
+        )
         if not is_25:
             args["bitrate_mode"] = bitrate_mode
+        else:
+            args.pop("bitrate_mode", None)
 
         if fal_mode == "image_to_video":
-            args["image_url"] = _upload_image_tensor(fal_client, first_frame)
+            args["image_url"] = _upload_image_tensor(
+                fal_client, first_frame, label="first_frame"
+            )
             if last_frame is not None:
-                args["end_image_url"] = _upload_image_tensor(fal_client, last_frame)
+                args["end_image_url"] = _upload_image_tensor(
+                    fal_client, last_frame, label="last_frame"
+                )
 
         elif fal_mode in ("reference_to_video", "video_edit", "video_extend"):
             image_urls = [
-                _upload_image_tensor(fal_client, img) for img in ref_images
+                _upload_image_tensor(fal_client, img, label=f"ref_image{index}")
+                for index, img in enumerate(ref_images, start=1)
             ]
             video_urls = []
             if source_video is not None:
-                video_urls.append(_upload_video(fal_client, source_video))
+                video_urls.append(
+                    _upload_video(
+                        fal_client,
+                        source_video,
+                        label="source_video",
+                        route=f"fal:{model}:{mode}",
+                        min_pixels=SEEDANCE_R2V_MIN_PIXELS if is_25 else None,
+                    )
+                )
             video_urls.extend(
-                _upload_video(fal_client, v) for v in ref_videos
+                _upload_video(
+                    fal_client,
+                    video,
+                    label=f"ref_video{index}",
+                    route=f"fal:{model}:{mode}",
+                    min_pixels=SEEDANCE_R2V_MIN_PIXELS if is_25 else None,
+                )
+                for index, video in enumerate(ref_videos, start=1)
             )
             audio_urls = [
                 _upload_audio(fal_client, a) for a in ref_audios
@@ -904,6 +1037,7 @@ class DigitDanceVideo:
         endpoint, route_note = seedance_pricing.resolve_muapi_route(
             mode, resolution, muapi_route, model=model,
         )
+        _validate_muapi_route_mode(endpoint, mode)
         logger.info(
             "[DigitDance] Provider: muapi | Mode: %s | Endpoint: %s", mode, endpoint
         )
@@ -911,35 +1045,31 @@ class DigitDanceVideo:
         temp_dir = folder_paths.get_temp_directory()
         os.makedirs(temp_dir, exist_ok=True)
 
-        payload = {
-            "prompt": prompt.strip(),
-            "duration": duration_seconds,
-        }
-
         endpoint_is_25 = endpoint.startswith("seedance-2.5")
-        # 2.5 bakes every resolution into the slug, including 480p/720p.
-        # 2.0 1080p/4k VIP slugs also bake resolution in.
-        endpoint_has_fixed_resolution = endpoint_is_25 or endpoint.endswith(
-            ("-1080p", "-4k", "-480p")
+        payload = _build_muapi_payload(
+            prompt=prompt,
+            duration=duration,
+            resolution=resolution,
+            aspect_ratio=aspect_ratio,
+            endpoint=endpoint,
+            mode=mode,
+            generate_audio=generate_audio,
+            bitrate_mode=bitrate_mode,
         )
-        if not endpoint_has_fixed_resolution:
-            payload["resolution"] = resolution
-
-        if inherit_duration or mode == "video_extend":
-            payload["aspect_ratio"] = "adaptive"
-        elif mode == "first_last_frame":
-            payload["aspect_ratio"] = "adaptive" if aspect_ratio == "auto" else aspect_ratio
-        elif aspect_ratio != "auto":
-            payload["aspect_ratio"] = aspect_ratio
-
-        if endpoint_is_25 and mode in ("video_edit", "video_extend"):
-            payload["generate_audio"] = bool(generate_audio)
-        elif not endpoint_is_25 and mode != "first_last_frame":
-            payload["generate_audio"] = bool(generate_audio)
-            payload["high_bitrate"] = bitrate_mode == "high"
 
         if endpoint_is_25:
             payload["seed"] = int(seed) if int(seed) > 0 else -1
+
+        def upload_route_video(video, label):
+            return muapi_client.upload_video(
+                headers,
+                video,
+                temp_dir,
+                label=label,
+                route=f"muapi:{endpoint}",
+                min_pixels=SEEDANCE_R2V_MIN_PIXELS if endpoint_is_25 else None,
+                max_bytes=SEEDANCE_R2V_MAX_BYTES,
+            )
 
         # Media uploads happen once; URLs are shared by every clip in the batch.
         if mode == "image_to_video":
@@ -956,9 +1086,7 @@ class DigitDanceVideo:
                 muapi_client.upload_image_tensor(headers, last_frame, label="last_frame"),
             ]
         elif mode in ("video_edit", "video_extend"):
-            payload["video"] = muapi_client.upload_video(
-                headers, source_video, temp_dir, label="source_video"
-            )
+            payload["video"] = upload_route_video(source_video, "source_video")
             if ref_images:
                 payload["images_list"] = [
                     muapi_client.upload_image_tensor(headers, img, label=f"ref_image{i}")
@@ -981,7 +1109,7 @@ class DigitDanceVideo:
                 ]
             if ref_videos:
                 video_urls = [
-                    muapi_client.upload_video(headers, v, temp_dir, label=f"ref_video{i}")
+                    upload_route_video(v, f"ref_video{i}")
                     for i, v in enumerate(ref_videos, start=1)
                 ]
                 payload["videos_list" if endpoint_is_25 else "video_files"] = video_urls
@@ -1071,7 +1199,6 @@ class DigitDanceVideo:
     def _run_muapi_batch(self, headers, endpoint, payload, batch_count):
         """Submit batch_count identical requests, then poll them all to terminal."""
         jobs = []
-        pending = set()
         for index in range(batch_count):
             job = {"index": index, "request_id": None, "result": None, "error": ""}
             jobs.append(job)
@@ -1079,7 +1206,6 @@ class DigitDanceVideo:
                 job["request_id"] = muapi_client.submit(
                     headers, endpoint, payload, log_prefix="[DigitDance:muapi]"
                 )
-                pending.add(index)
                 logger.info(
                     "[DigitDance] muapi job %d/%d submitted: %s",
                     index + 1, batch_count, job["request_id"],
@@ -1092,54 +1218,26 @@ class DigitDanceVideo:
                 )
 
         pbar = comfy.utils.ProgressBar(len(jobs))
-        completed_count = len(jobs) - len(pending)
-        if completed_count:
-            pbar.update_absolute(completed_count)
 
-        deadline = time.monotonic() + muapi_client.MAX_WAIT_SECONDS
-        while pending:
+        def on_progress(completed, _total):
+            pbar.update_absolute(completed)
+
+        def abort_fn():
             from comfy.model_management import throw_exception_if_processing_interrupted
+
             throw_exception_if_processing_interrupted()
 
-            if time.monotonic() > deadline:
-                for index in pending:
-                    jobs[index]["error"] = (
-                        f"Timed out after {muapi_client.MAX_WAIT_SECONDS}s "
-                        f"(request_id={jobs[index]['request_id']})"
-                    )
-                break
-
-            for index in list(pending):
-                job = jobs[index]
-                try:
-                    result = muapi_client.poll_status(
-                        headers, job["request_id"], log_prefix="[DigitDance:muapi]"
-                    )
-                except Exception as error:
-                    logger.warning(
-                        "[DigitDance] muapi status check failed for job %d: %s",
-                        index + 1, error,
-                    )
-                    continue
-
-                status = str(result.get("status", "")).lower()
-                if status == "completed":
-                    job["result"] = result
-                elif status in muapi_client.TERMINAL_FAILURE_STATES:
-                    job["error"] = str(
-                        result.get("error") or f"Generation {status}."
-                    )
-                else:
-                    continue
-
-                pending.remove(index)
-                completed_count += 1
-                pbar.update_absolute(completed_count)
-
-            if pending:
-                time.sleep(muapi_client.POLL_INTERVAL_SECONDS)
-
-        return jobs
+        return muapi_client.run_batch_poll(
+            jobs,
+            lambda request_id: muapi_client.poll_status(
+                headers,
+                request_id,
+                log_prefix="[DigitDance:muapi]",
+            ),
+            batch_count=batch_count,
+            abort_fn=abort_fn,
+            on_progress=on_progress,
+        )
 
     # ------------------------------------------------------------------
     # Replicate backend
@@ -1175,19 +1273,19 @@ class DigitDanceVideo:
 
         duration_value = -1 if duration == "auto" else self._duration_int(duration)
 
-        replicate_input = {
-            "prompt": prompt.strip(),
-            "resolution": resolution,
-            "aspect_ratio": "adaptive" if aspect_ratio == "auto" else aspect_ratio,
-            "duration": duration_value,
-            "audio": bool(generate_audio),
-        }
-        if negative_prompt and negative_prompt.strip():
-            replicate_input["negative_prompt"] = negative_prompt.strip()
+        replicate_input = _build_replicate_payload(
+            prompt=prompt,
+            resolution=resolution,
+            aspect_ratio=aspect_ratio,
+            duration=duration,
+            generate_audio=generate_audio,
+            negative_prompt=negative_prompt,
+        )
 
         # Replicate's Python SDK accepts open file handles and auto-uploads them.
         # Track them so we can close after the calls return.
         open_files = []
+        sanitized_videos = []
 
         def _open(path):
             fh = open(path, "rb")
@@ -1211,8 +1309,19 @@ class DigitDanceVideo:
                         for img in ref_images
                     ]
                 if ref_videos:
+                    for index, video in enumerate(ref_videos, start=1):
+                        sanitized_videos.append(
+                            media_sanitize.sanitize_reference_video(
+                                video,
+                                temp_dir,
+                                min_pixels=None,
+                                max_bytes=SEEDANCE_R2V_MAX_BYTES,
+                                label=f"ref_video{index}",
+                                route="replicate:seedance-r2v",
+                            )
+                        )
                     replicate_input["reference_videos"] = [
-                        _open(_video_to_path(v, temp_dir)) for v in ref_videos
+                        _open(result.path) for result in sanitized_videos
                     ]
                 if ref_audios:
                     # Replicate's field name is singular: reference_audio
@@ -1259,6 +1368,8 @@ class DigitDanceVideo:
                     fh.close()
                 except Exception:
                     pass
+            for result in sanitized_videos:
+                result.cleanup()
 
         batch_timestamp = int(time.time())
         batch_uuid = uuid.uuid4().hex[:8]
@@ -1458,8 +1569,8 @@ class DigitReplicateSeedance(DigitDanceVideo):
 # (web/digit_seedance_cost.js). Registered only when running inside ComfyUI.
 # ---------------------------------------------------------------------------
 try:
-    from server import PromptServer
     from aiohttp import web
+    from server import PromptServer
 
     @PromptServer.instance.routes.post("/digit/seedance/estimate")
     async def _digit_seedance_estimate(request):

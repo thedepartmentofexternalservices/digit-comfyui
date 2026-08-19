@@ -1105,6 +1105,41 @@ If not set, the node auto-detects common mount points or falls back to `~/PROJEK
 
 Project folders must follow the `#####_name` pattern (5-digit prefix) to appear in the dropdown menus.
 
+### Trace a generated file back to its workflow
+
+DIGIT savers write a `*_ui.json` workflow sidecar beside the first output in a
+batch. Start there when you need the prompt, model settings, or input filenames
+used to create a saved file.
+
+For a completed render on a Comfy server:
+
+1. Find its Comfy prompt UUID:
+   ```bash
+   journalctl -u comfyui --since today | grep "DigitBrokerHook.*Reported prompt"
+   ```
+2. Query the full prompt before Comfy history rotates:
+   ```bash
+   curl -s "http://127.0.0.1:8188/history/<prompt_id>"
+   ```
+3. Check the saved output's `*_ui.json` sidecar for durable workflow metadata.
+
+Provider request IDs (MUAPI, fal, or Replicate) are not Comfy prompt IDs.
+`journalctl` records timing and provider events, but it does not contain the
+full workflow payload.
+
+The studio paths map as follows:
+
+```text
+/Volumes/saint/goose/PROJEKTS/...  <->  /mnt/lucid/PROJEKTS/...
+```
+
+Check mount health and scan latency with:
+
+```bash
+curl -s http://127.0.0.1:8188/digit/health
+journalctl -u comfyui --since today | grep -E "projekts_listdir_retry|projekts_scan_error"
+```
+
 ---
 
 ## Node deprecation policy

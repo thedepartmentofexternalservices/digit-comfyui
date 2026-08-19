@@ -310,13 +310,14 @@ app.registerExtension({
             keepValueInOptions(rootWidget, roots);
         }
 
-        async function refreshProjects(gen) {
+        async function refreshProjects(gen, forceRefresh = false) {
             const root = rootWidget.value;
             if (!root) {
                 keepValueInOptions(projectWidget, []);
                 return "";
             }
-            const projects = await fetchJson(`/digit/projects?root=${encodeURIComponent(root)}`);
+            const refresh = forceRefresh ? "&refresh=1" : "";
+            const projects = await fetchJson(`/digit/projects?root=${encodeURIComponent(root)}${refresh}`);
             if (gen !== refreshGen) return "";
             if (isSentinelList(projects)) {
                 keepValueInOptions(projectWidget, []);
@@ -329,6 +330,7 @@ app.registerExtension({
         async function refreshShots(gen, opts = {}) {
             if (!shotWidget) return "";
             const resetIfMissing = Boolean(opts.resetIfMissing);
+            const forceRefresh = Boolean(opts.forceRefresh);
             const root = opts.root !== undefined ? opts.root : rootWidget.value;
             const project = opts.project !== undefined ? opts.project : projectWidget.value;
             if (!root || !isUsableName(project)) {
@@ -337,7 +339,7 @@ app.registerExtension({
                 return "";
             }
             const shots = await fetchJson(
-                `/digit/shots?root=${encodeURIComponent(root)}&project=${encodeURIComponent(project)}`
+                `/digit/shots?root=${encodeURIComponent(root)}&project=${encodeURIComponent(project)}${forceRefresh ? "&refresh=1" : ""}`
             );
             if (gen !== refreshGen) return "";
             if (isSentinelList(shots)) {
@@ -390,16 +392,16 @@ app.registerExtension({
             return "";
         }
 
-        async function refreshAll() {
+        async function refreshAll(forceRefresh = false) {
             const gen = ++refreshGen;
             try {
                 await refreshRoots(gen);
                 if (gen !== refreshGen) return;
-                const projectWarning = await refreshProjects(gen);
+                const projectWarning = await refreshProjects(gen, forceRefresh);
                 if (gen !== refreshGen) return;
                 let shotWarning = "";
                 if (isHasShotNode) {
-                    shotWarning = await refreshShots(gen);
+                    shotWarning = await refreshShots(gen, { forceRefresh });
                     if (gen !== refreshGen) return;
                     await refreshFolders(gen);
                     if (gen !== refreshGen) return;
@@ -635,7 +637,7 @@ app.registerExtension({
 
         node.addWidget("button", "refresh_projekts", "Refresh", () => {
             clearRetry();
-            refreshAll();
+            refreshAll(true);
         });
 
         const origOnConfigure = node.onConfigure;

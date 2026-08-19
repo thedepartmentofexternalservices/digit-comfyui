@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -16,9 +17,9 @@ video_saver_node = load_digit_module("video_saver_node")
 class FakeTensorImage:
     """Minimal stand-in for a torch IMAGE batch of one 4x4 RGB frame."""
 
-    def __init__(self):
-        self._np = np.zeros((4, 4, 3), dtype=np.float32)
-        self.shape = (1, 4, 4, 3)
+    def __init__(self, width=4, height=4):
+        self._np = np.zeros((height, width, 3), dtype=np.float32)
+        self.shape = (1, height, width, 3)
 
     def __getitem__(self, idx):
         return self
@@ -72,6 +73,34 @@ def test_image_saver_writes_png_inside_root(tmp_path):
     assert path.is_file()
     assert str(path).startswith(str(root))
     assert path.name == "12345_sh010_comp.1001.png"
+
+
+def test_image_saver_preview_is_bounded(tmp_path, monkeypatch):
+    from PIL import Image
+
+    root = _tree(tmp_path)
+    temp = tmp_path / "temp"
+    monkeypatch.setattr(image_saver_node.folder_paths, "get_temp_directory", lambda: str(temp))
+    result = image_saver_node.DigitImageSaver().save_image(
+        FakeTensorImage(width=3000, height=1000),
+        str(root),
+        "12345_demo",
+        "sh010",
+        "comfy",
+        "comp",
+        "png",
+        "linear",
+        95,
+        1001,
+        4,
+        True,
+        "none",
+    )
+    preview_path = temp / result["ui"]["images"][0]["filename"]
+    with Image.open(preview_path) as preview:
+        assert max(preview.size) == image_saver_node.PREVIEW_MAX_EDGE
+    with Image.open(result["result"][0]) as saved:
+        assert saved.size == (3000, 1000)
 
 
 def test_video_saver_rejects_placeholder_shot(tmp_path):
@@ -160,4 +189,41 @@ def test_input_types_does_not_bake_no_shots_found(tmp_path, monkeypatch):
         projects = types["required"]["project"][0]
         assert "(no shots found)" not in str(shot)
         assert "(no projects found)" not in projects
-        assert "12345_demo" in projects
+        assert projects == [""]
+
+
+def test_image_loader_change_key_tracks_selected_file(tmp_path):
+    from PIL import Image
+
+    path = tmp_path / "source.png"
+    Image.new("RGB", (8, 8), color=(1, 2, 3)).save(path)
+    first = image_loader_node.DigitImageLoader.IS_CHANGED(browse_path=str(path))
+    second = image_loader_node.DigitImageLoader.IS_CHANGED(browse_path=str(path))
+    assert first == second
+
+    Image.new("RGB", (9, 8), color=(4, 5, 6)).save(path)
+    os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 1))
+    assert image_loader_node.DigitImageLoader.IS_CHANGED(browse_path=str(path)) != first
+
+
+def test_image_loader_preview_is_bounded(tmp_path, monkeypatch):
+    from PIL import Image
+
+    monkeypatch.setenv("DIGIT_PROJEKTS_ROOTS", str(tmp_path))
+    monkeypatch.setattr(image_loader_node.folder_paths, "get_temp_directory", lambda: str(tmp_path))
+    source = tmp_path / "large.png"
+    Image.new("RGB", (3000, 1000), color=(1, 2, 3)).save(source)
+
+    result = image_loader_node.DigitImageLoader().load_latest(
+        str(tmp_path),
+        "12345_demo",
+        "sh010",
+        "comfy",
+        "comp",
+        "png",
+        browse_path=str(source),
+    )
+    preview = tmp_path / result["ui"]["images"][0]["filename"]
+    with Image.open(preview) as image:
+        assert max(image.size) == image_loader_node.PREVIEW_MAX_EDGE
+    assert result["result"][0].shape[2] == 3000
