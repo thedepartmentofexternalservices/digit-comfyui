@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import re
@@ -12,15 +13,14 @@ from server import PromptServer
 
 from .projekts_utils import (
     FRAME_RE,
-    combo_choices,
     get_available_projekts_roots,
     is_placeholder,
     is_within_roots,
     resolve_pipeline_dir,
-    scan_projects,
 )
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".exr", ".tif", ".tiff", ".bmp", ".webp"}
+PREVIEW_MAX_EDGE = 2048
 
 FILTER_PRESETS = {
     "images": IMAGE_EXTENSIONS,
@@ -110,13 +110,10 @@ class DigitImageLoader:
             files = []
 
         available_roots = get_available_projekts_roots() or [""]
-        first_root = available_roots[0]
-        projects = combo_choices(scan_projects(first_root)) if first_root else [""]
-
         return {
             "required": {
                 "projekts_root": (available_roots,),
-                "project": (projects,),
+                "project": ([""],),
                 "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
                 "subfolder": ("STRING", {"default": "comfy"}),
                 "task": ("STRING", {"default": "comp"}),
@@ -138,8 +135,64 @@ class DigitImageLoader:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
-        # Always re-execute so we pick up the latest file.
-        return float("nan")
+        """Return a stable key that changes when the selected source file changes."""
+        source_path = cls._selected_source_path(**kwargs)
+        signature = [source_path or "", kwargs.get("frame_mode"), kwargs.get("frame")]
+        if source_path:
+            try:
+                stat = os.stat(source_path)
+                signature.extend((stat.st_mtime_ns, stat.st_size))
+            except OSError:
+                signature.append("missing")
+        else:
+            signature.extend(
+                kwargs.get(name)
+                for name in ("projekts_root", "project", "shot", "subfolder", "task", "format")
+            )
+        return hashlib.sha256(repr(tuple(signature)).encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _selected_source_path(cls, **kwargs):
+        browse_path = str(kwargs.get("browse_path") or "").strip()
+        if browse_path and os.path.isfile(browse_path):
+            return browse_path
+        upload_image = kwargs.get("upload_image")
+        if upload_image:
+            path = folder_paths.get_annotated_filepath(upload_image)
+            if os.path.isfile(path):
+                return path
+        filepath = str(kwargs.get("filepath") or "").strip()
+        if filepath and os.path.isfile(filepath):
+            return filepath
+        try:
+            target_dir = resolve_pipeline_dir(
+                kwargs.get("projekts_root"),
+                kwargs.get("project"),
+                kwargs.get("shot"),
+                kwargs.get("subfolder", "comfy"),
+                kwargs.get("task", "comp"),
+            )
+        except (TypeError, ValueError):
+            return None
+        loader = cls()
+        if kwargs.get("frame_mode", "latest") == "pinned":
+            path, _ = loader._find_frame(
+                target_dir,
+                str(kwargs.get("project") or "")[:5],
+                kwargs.get("shot", ""),
+                kwargs.get("task", "comp"),
+                kwargs.get("format", "png"),
+                kwargs.get("frame", 1001),
+            )
+        else:
+            path, _ = loader._find_latest(
+                target_dir,
+                str(kwargs.get("project") or "")[:5],
+                kwargs.get("shot", ""),
+                kwargs.get("task", "comp"),
+                kwargs.get("format", "png"),
+            )
+        return path
 
     def load_latest(self, projekts_root, project, shot, subfolder, task, format,
                     browse_path=None, upload_image=None, filepath=None,
@@ -159,6 +212,7 @@ class DigitImageLoader:
                 m = FRAME_RE.search(os.path.basename(bp))
                 frame_num = int(m.group(1)) if m else 0
                 img_tensor = self._load_image(bp, ext)
+                self._log_loaded("browse_path", bp, img_tensor, frame_num)
                 preview_info = self._save_preview(img_tensor, bp)
                 return {"ui": {"images": [preview_info], "filepath_text": [bp]},
                         "result": (img_tensor, bp, frame_num)}
@@ -171,6 +225,7 @@ class DigitImageLoader:
             if os.path.isfile(image_path):
                 ext = os.path.splitext(image_path)[1].lstrip(".")
                 img_tensor = self._load_image(image_path, ext)
+                self._log_loaded("upload_image", image_path, img_tensor, 0)
                 preview_info = self._save_preview(img_tensor, image_path)
                 return {"ui": {"images": [preview_info], "filepath_text": [image_path]},
                         "result": (img_tensor, image_path, 0)}
@@ -182,6 +237,7 @@ class DigitImageLoader:
             m = FRAME_RE.search(os.path.basename(filepath))
             frame_num = int(m.group(1)) if m else 0
             img_tensor = self._load_image(filepath, ext)
+            self._log_loaded("filepath", filepath, img_tensor, frame_num)
             preview_info = self._save_preview(img_tensor, filepath)
             return {"ui": {"images": [preview_info], "filepath_text": [filepath]},
                     "result": (img_tensor, filepath, frame_num)}
@@ -217,6 +273,7 @@ class DigitImageLoader:
             raise FileNotFoundError(msg)
 
         img_tensor = self._load_image(found_path, format)
+        self._log_loaded("pipeline", found_path, img_tensor, frame_num)
         preview_info = self._save_preview(img_tensor, found_path)
 
         return {"ui": {"images": [preview_info], "filepath_text": [found_path]},
@@ -233,9 +290,23 @@ class DigitImageLoader:
         img_np = img_tensor[0].cpu().numpy()
         img_8bit = np.clip(255.0 * img_np[:, :, :3], 0, 255).astype(np.uint8)
         pil_img = Image.fromarray(img_8bit, mode="RGB")
+        if max(pil_img.size) > PREVIEW_MAX_EDGE:
+            pil_img.thumbnail((PREVIEW_MAX_EDGE, PREVIEW_MAX_EDGE), Image.Resampling.LANCZOS)
         pil_img.save(preview_path, format="PNG")
 
         return {"filename": preview_name, "subfolder": "", "type": "temp"}
+
+    @staticmethod
+    def _log_loaded(source_kind, path, img_tensor, frame):
+        height, width = img_tensor.shape[1:3]
+        logger.info(
+            "image_loaded source=%s path=%s width=%d height=%d frame=%d",
+            source_kind,
+            path,
+            width,
+            height,
+            frame,
+        )
 
     def _find_latest(self, target_dir, prefix, shot, task, ext):
         """Return (filepath, frame_number) for the highest-numbered frame, or (None, 0)."""

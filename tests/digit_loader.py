@@ -75,6 +75,10 @@ def _ensure_torch_stub() -> None:
         def numpy(self):
             return self._array
 
+        @property
+        def shape(self):
+            return self._array.shape
+
         def __getitem__(self, idx):
             return _Tensor(self._array[idx])
 

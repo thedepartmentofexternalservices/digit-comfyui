@@ -4,15 +4,17 @@ Used by the Seedance video node (muapi provider) and the MU Seedance
 Character node. Auth comes from the MUAPIAPP_API_KEY environment variable.
 """
 
-import io
 import logging
 import os
 import time
 import uuid
 
-import numpy as np
 import requests
-from PIL import Image
+
+try:
+    from . import media_sanitize
+except ImportError:
+    import media_sanitize
 
 logger = logging.getLogger("DigitMuapiClient")
 
@@ -245,85 +247,47 @@ def response_json(response, operation):
 
 
 def _fit_image_within_edge(image, max_edge=MAX_IMAGE_EDGE_PIXELS):
-    """Downscale in place when width or height exceeds Seedance/MUAPI limits."""
+    """Compatibility helper for callers testing the old image fit surface."""
     width, height = image.size
     longest = max(width, height)
     if longest <= max_edge:
         return image, False
     scale = max_edge / float(longest)
     new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
-    logger.info(
-        "[DIGIT MUAPI] Downscaling upload from %dx%d to %dx%d (max edge %dpx)",
-        width,
-        height,
-        new_size[0],
-        new_size[1],
-        max_edge,
-    )
-    return image.resize(new_size, Image.LANCZOS), True
+    return image.resize(new_size, media_sanitize.Image.LANCZOS), True
 
 
 def _encode_image_bytes(image):
-    """PNG first; fall back to JPEG and shrink when MUAPI's upload cap is exceeded."""
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    png_bytes = buffer.getvalue()
-    if len(png_bytes) <= MAX_UPLOAD_BYTES:
-        return png_bytes, "image/png", ".png"
-
-    working = image
+    """Compatibility wrapper around the shared encoder."""
+    png = media_sanitize._encode(image.convert("RGB"), "PNG")
+    if len(png) <= MAX_UPLOAD_BYTES:
+        return png, "image/png", ".png"
+    working = image.convert("RGB")
     while True:
-        buffer = io.BytesIO()
-        working.save(buffer, format="JPEG", quality=JPEG_UPLOAD_QUALITY, optimize=True)
-        jpeg_bytes = buffer.getvalue()
-        if len(jpeg_bytes) <= MAX_UPLOAD_BYTES:
-            logger.info(
-                "[DIGIT MUAPI] Re-encoded upload as JPEG q=%d at %dx%d (%.1f MB)",
-                JPEG_UPLOAD_QUALITY,
-                working.size[0],
-                working.size[1],
-                len(jpeg_bytes) / 1_000_000,
-            )
-            return jpeg_bytes, "image/jpeg", ".jpg"
-
-        width, height = working.size
-        if width <= 512 and height <= 512:
-            raise RuntimeError(
-                "MUAPI image upload still exceeds size limit after downscaling "
-                f"to {width}x{height}."
-            )
-        working = working.resize(
-            (max(1, width // 2), max(1, height // 2)),
-            Image.LANCZOS,
+        data = media_sanitize._encode(
+            working,
+            "JPEG",
+            quality=JPEG_UPLOAD_QUALITY,
+            optimize=True,
         )
-        logger.info(
-            "[DIGIT MUAPI] JPEG still %.1f MB; halving to %dx%d",
-            len(jpeg_bytes) / 1_000_000,
-            working.size[0],
-            working.size[1],
+        if len(data) <= MAX_UPLOAD_BYTES:
+            return data, "image/jpeg", ".jpg"
+        if working.width <= 512 and working.height <= 512:
+            raise RuntimeError("MUAPI image upload remains over the route limit.")
+        working = working.resize(
+            (max(1, int(working.width * 0.85)), max(1, int(working.height * 0.85))),
+            media_sanitize.Image.LANCZOS,
         )
 
 
 def _tensor_to_png_bytes(image_tensor):
-    """Convert the first image in a ComfyUI IMAGE batch to uploadable bytes."""
-    if image_tensor is None or image_tensor.ndim != 4 or image_tensor.shape[0] < 1:
-        raise ValueError("Image input must be a non-empty ComfyUI IMAGE batch.")
-
-    image_array = image_tensor[0]
-    if hasattr(image_array, "detach"):
-        image_array = image_array.detach().cpu().numpy()
-    else:
-        image_array = np.asarray(image_array)
-    image_array = (image_array * 255).clip(0, 255).astype(np.uint8)
-
-    if image_array.shape[-1] == 4:
-        image = Image.fromarray(image_array, mode="RGBA").convert("RGB")
-    else:
-        image = Image.fromarray(image_array, mode="RGB")
-
-    image, _ = _fit_image_within_edge(image)
-    file_bytes, _content_type, _ext = _encode_image_bytes(image)
-    return file_bytes
+    """Compatibility helper returning sanitized MUAPI image bytes."""
+    return media_sanitize.sanitize_image_batch(
+        image_tensor,
+        max_edge=MAX_IMAGE_EDGE_PIXELS,
+        max_bytes=MAX_UPLOAD_BYTES,
+        route="muapi:seedance",
+    ).data
 
 
 def _upload_bytes(headers, file_bytes, filename, content_type):
@@ -343,41 +307,46 @@ def _upload_bytes(headers, file_bytes, filename, content_type):
 
 def upload_image_tensor(headers, image_tensor, label="image"):
     """Upload the first frame of a ComfyUI IMAGE batch. Returns URL."""
-    if image_tensor is None or image_tensor.ndim != 4 or image_tensor.shape[0] < 1:
-        raise ValueError("Image input must be a non-empty ComfyUI IMAGE batch.")
-
-    image_array = image_tensor[0]
-    if hasattr(image_array, "detach"):
-        image_array = image_array.detach().cpu().numpy()
-    else:
-        image_array = np.asarray(image_array)
-    image_array = (image_array * 255).clip(0, 255).astype(np.uint8)
-    if image_array.shape[-1] == 4:
-        image = Image.fromarray(image_array, mode="RGBA").convert("RGB")
-    else:
-        image = Image.fromarray(image_array, mode="RGB")
-
-    image, _ = _fit_image_within_edge(image)
-    file_bytes, content_type, ext = _encode_image_bytes(image)
-    name = f"digit_{label}_{uuid.uuid4().hex[:8]}{ext}"
-    return _upload_bytes(headers, file_bytes, name, content_type)
+    result = media_sanitize.sanitize_image_batch(
+        image_tensor,
+        max_edge=MAX_IMAGE_EDGE_PIXELS,
+        max_bytes=MAX_UPLOAD_BYTES,
+        label=label,
+        route="muapi:seedance",
+    )
+    name = f"digit_{label}_{uuid.uuid4().hex[:8]}{result.extension}"
+    return _upload_bytes(headers, result.data, name, result.content_type)
 
 
-def upload_video(headers, video_obj, temp_dir, label="video"):
+def upload_video(
+    headers,
+    video_obj,
+    temp_dir,
+    label="video",
+    *,
+    route="muapi:unspecified",
+    min_pixels=None,
+    max_bytes=None,
+):
     """Upload a ComfyUI VIDEO object. Returns URL."""
-    path = None
+    result = media_sanitize.sanitize_reference_video(
+        video_obj,
+        temp_dir,
+        min_pixels=min_pixels,
+        max_bytes=max_bytes,
+        label=label,
+        route=route,
+    )
     try:
-        source = video_obj.get_stream_source()
-        if isinstance(source, str) and os.path.isfile(source):
-            path = source
-    except Exception:
-        pass
-    if path is None:
-        os.makedirs(temp_dir, exist_ok=True)
-        path = os.path.join(temp_dir, f"digit_{label}_{uuid.uuid4().hex[:8]}.mp4")
-        video_obj.save_to(path)
-    with open(path, "rb") as f:
-        return _upload_bytes(headers, f.read(), os.path.basename(path), "video/mp4")
+        with open(result.path, "rb") as f:
+            return _upload_bytes(
+                headers,
+                f.read(),
+                os.path.basename(result.path),
+                "video/mp4",
+            )
+    finally:
+        result.cleanup()
 
 
 def upload_audio(headers, audio_obj, temp_dir, label="audio"):

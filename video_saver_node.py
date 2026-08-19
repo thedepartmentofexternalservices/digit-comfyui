@@ -8,11 +8,9 @@ import shutil
 import folder_paths
 
 from .projekts_utils import (
-    combo_choices,
     get_available_projekts_roots,
     next_frame,
     resolve_pipeline_dir,
-    scan_projects,
 )
 
 logger = logging.getLogger("DigitVideoSaver")
@@ -144,13 +142,11 @@ class DigitVideoSaver:
     @classmethod
     def INPUT_TYPES(cls):
         available_roots = get_available_projekts_roots() or [""]
-        first_root = available_roots[0]
-        projects = combo_choices(scan_projects(first_root)) if first_root else [""]
 
         return {
             "required": {
                 "projekts_root": (available_roots,),
-                "project": (projects,),
+                "project": ([""],),
                 "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
                 "subfolder": ("STRING", {"default": "comfy"}),
                 "task": ("STRING", {"default": "comp"}),
