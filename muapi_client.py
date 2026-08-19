@@ -20,8 +20,153 @@ API_BASE_URL = "https://api.muapi.ai/api/v1"
 UPLOAD_URL = f"{API_BASE_URL}/upload_file"
 POLL_INTERVAL_SECONDS = 3
 MAX_WAIT_SECONDS = 20 * 60
+# Seedance (via MUAPI) rejects inputs wider/taller than 6000px.
+MAX_IMAGE_EDGE_PIXELS = 6000
+# MUAPI upload_file rejects payloads over 10 MB; JPEG fallback kicks in above this.
+MAX_UPLOAD_BYTES = 9_000_000
+JPEG_UPLOAD_QUALITY = 95
+# First job must leave queued/pending within this window. After that, each
+# in-flight job gets its own process budget and the batch cap scales with N.
+QUEUE_STALL_SECONDS = MAX_WAIT_SECONDS
+PROCESS_TIMEOUT_SECONDS = MAX_WAIT_SECONDS
+STARTED_STATES = {"processing", "completed"}
 TERMINAL_FAILURE_STATES = {"failed", "cancelled"}
 RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
+
+
+def batch_max_wait_seconds(batch_count):
+    """Wall-clock cap for a batch. MUAPI often serializes Seedance jobs.
+
+    First clip may sit in queue up to ``QUEUE_STALL_SECONDS``, then each clip
+    gets its own ``PROCESS_TIMEOUT_SECONDS`` once it is rendering.
+    """
+    n = max(1, int(batch_count))
+    return QUEUE_STALL_SECONDS + PROCESS_TIMEOUT_SECONDS * n
+
+
+def status_has_started(status):
+    return str(status or "").lower() in STARTED_STATES | TERMINAL_FAILURE_STATES
+
+
+def queue_is_stalled(jobs, elapsed_seconds):
+    """True when nothing has started processing before the stall window."""
+    if elapsed_seconds < QUEUE_STALL_SECONDS:
+        return False
+    return not any(
+        job.get("result") or status_has_started(job.get("last_status"))
+        for job in jobs
+    )
+
+
+def job_process_timed_out(job, now):
+    started = job.get("processing_at")
+    if started is None:
+        return False
+    return (now - started) >= PROCESS_TIMEOUT_SECONDS
+
+
+def _format_job_timeout(job, reason):
+    request_id = job.get("request_id") or "n/a"
+    last_status = job.get("last_status") or "unknown"
+    return f"{reason} (last status={last_status}, request_id={request_id})"
+
+
+def run_batch_poll(
+    jobs,
+    poll_fn,
+    *,
+    batch_count=None,
+    now_fn=time.monotonic,
+    sleep_fn=time.sleep,
+    abort_fn=None,
+    on_progress=None,
+    poll_interval=POLL_INTERVAL_SECONDS,
+):
+    """Poll submitted MUAPI jobs until each is terminal, stalled, or timed out.
+
+    ``jobs`` is a list of dicts with ``request_id``. Mutates each job in place
+    with ``result``, ``error``, ``last_status``, and ``processing_at``.
+
+    The first job must start within ``QUEUE_STALL_SECONDS``. After that, each
+    job that enters ``processing`` gets ``PROCESS_TIMEOUT_SECONDS``, and the
+    whole batch may run up to ``QUEUE_STALL_SECONDS + PROCESS_TIMEOUT_SECONDS
+    * batch_count``. That is what makes ``batch_count > 1`` survivable when
+    MUAPI runs clips one at a time.
+    """
+    pending = {index for index, job in enumerate(jobs) if job.get("request_id")}
+    completed_count = len(jobs) - len(pending)
+    if on_progress:
+        on_progress(completed_count, len(jobs))
+
+    batch_start = now_fn()
+    n = max(1, int(batch_count if batch_count is not None else len(jobs)))
+    overall_deadline = batch_start + batch_max_wait_seconds(n)
+
+    while pending:
+        if abort_fn:
+            abort_fn()
+
+        now = now_fn()
+        elapsed = now - batch_start
+
+        if queue_is_stalled(jobs, elapsed):
+            reason = f"MUAPI queue stalled after {int(elapsed)}s"
+            for index in pending:
+                jobs[index]["error"] = _format_job_timeout(jobs[index], reason)
+            break
+
+        if now > overall_deadline:
+            reason = (
+                f"Timed out after {int(elapsed)}s waiting on a {n}-clip batch"
+            )
+            for index in pending:
+                jobs[index]["error"] = _format_job_timeout(jobs[index], reason)
+            break
+
+        for index in list(pending):
+            job = jobs[index]
+            try:
+                result = poll_fn(job["request_id"])
+            except Exception as error:
+                logger.warning(
+                    "[DIGIT MUAPI] status check failed for job %d: %s",
+                    index + 1,
+                    error,
+                )
+                continue
+
+            status = str(result.get("status", "")).lower()
+            job["last_status"] = status
+            if status == "processing" and job.get("processing_at") is None:
+                job["processing_at"] = now
+
+            if job_process_timed_out(job, now):
+                job["error"] = _format_job_timeout(
+                    job,
+                    f"Timed out after {PROCESS_TIMEOUT_SECONDS}s in processing",
+                )
+                pending.remove(index)
+                completed_count += 1
+                if on_progress:
+                    on_progress(completed_count, len(jobs))
+                continue
+
+            if status == "completed":
+                job["result"] = result
+            elif status in TERMINAL_FAILURE_STATES:
+                job["error"] = str(result.get("error") or f"Generation {status}.")
+            else:
+                continue
+
+            pending.remove(index)
+            completed_count += 1
+            if on_progress:
+                on_progress(completed_count, len(jobs))
+
+        if pending:
+            sleep_fn(poll_interval)
+
+    return jobs
 
 
 def require_api_key():
@@ -46,7 +191,11 @@ def request_with_retry(method, url, max_retries=3, log_prefix="[DIGIT MUAPI]", *
             if response.status_code in RETRYABLE_STATUS_CODES:
                 if retry_index == max_retries - 1:
                     response.raise_for_status()
-                delay = 2 ** retry_index
+                retry_after = response.headers.get("Retry-After", "").strip()
+                if retry_after.isdigit():
+                    delay = min(int(retry_after), 60)
+                else:
+                    delay = 2 ** retry_index
                 logger.warning(
                     "%s HTTP %d; retrying in %ds.",
                     log_prefix,
@@ -95,12 +244,76 @@ def response_json(response, operation):
         raise RuntimeError(f"{operation} returned invalid JSON: {preview}") from error
 
 
+def _fit_image_within_edge(image, max_edge=MAX_IMAGE_EDGE_PIXELS):
+    """Downscale in place when width or height exceeds Seedance/MUAPI limits."""
+    width, height = image.size
+    longest = max(width, height)
+    if longest <= max_edge:
+        return image, False
+    scale = max_edge / float(longest)
+    new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+    logger.info(
+        "[DIGIT MUAPI] Downscaling upload from %dx%d to %dx%d (max edge %dpx)",
+        width,
+        height,
+        new_size[0],
+        new_size[1],
+        max_edge,
+    )
+    return image.resize(new_size, Image.LANCZOS), True
+
+
+def _encode_image_bytes(image):
+    """PNG first; fall back to JPEG and shrink when MUAPI's upload cap is exceeded."""
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    png_bytes = buffer.getvalue()
+    if len(png_bytes) <= MAX_UPLOAD_BYTES:
+        return png_bytes, "image/png", ".png"
+
+    working = image
+    while True:
+        buffer = io.BytesIO()
+        working.save(buffer, format="JPEG", quality=JPEG_UPLOAD_QUALITY, optimize=True)
+        jpeg_bytes = buffer.getvalue()
+        if len(jpeg_bytes) <= MAX_UPLOAD_BYTES:
+            logger.info(
+                "[DIGIT MUAPI] Re-encoded upload as JPEG q=%d at %dx%d (%.1f MB)",
+                JPEG_UPLOAD_QUALITY,
+                working.size[0],
+                working.size[1],
+                len(jpeg_bytes) / 1_000_000,
+            )
+            return jpeg_bytes, "image/jpeg", ".jpg"
+
+        width, height = working.size
+        if width <= 512 and height <= 512:
+            raise RuntimeError(
+                "MUAPI image upload still exceeds size limit after downscaling "
+                f"to {width}x{height}."
+            )
+        working = working.resize(
+            (max(1, width // 2), max(1, height // 2)),
+            Image.LANCZOS,
+        )
+        logger.info(
+            "[DIGIT MUAPI] JPEG still %.1f MB; halving to %dx%d",
+            len(jpeg_bytes) / 1_000_000,
+            working.size[0],
+            working.size[1],
+        )
+
+
 def _tensor_to_png_bytes(image_tensor):
-    """Convert the first image in a ComfyUI IMAGE batch to PNG bytes."""
+    """Convert the first image in a ComfyUI IMAGE batch to uploadable bytes."""
     if image_tensor is None or image_tensor.ndim != 4 or image_tensor.shape[0] < 1:
         raise ValueError("Image input must be a non-empty ComfyUI IMAGE batch.")
 
-    image_array = image_tensor[0].detach().cpu().numpy()
+    image_array = image_tensor[0]
+    if hasattr(image_array, "detach"):
+        image_array = image_array.detach().cpu().numpy()
+    else:
+        image_array = np.asarray(image_array)
     image_array = (image_array * 255).clip(0, 255).astype(np.uint8)
 
     if image_array.shape[-1] == 4:
@@ -108,9 +321,9 @@ def _tensor_to_png_bytes(image_tensor):
     else:
         image = Image.fromarray(image_array, mode="RGB")
 
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    return buffer.getvalue()
+    image, _ = _fit_image_within_edge(image)
+    file_bytes, _content_type, _ext = _encode_image_bytes(image)
+    return file_bytes
 
 
 def _upload_bytes(headers, file_bytes, filename, content_type):
@@ -130,9 +343,24 @@ def _upload_bytes(headers, file_bytes, filename, content_type):
 
 def upload_image_tensor(headers, image_tensor, label="image"):
     """Upload the first frame of a ComfyUI IMAGE batch. Returns URL."""
-    png_bytes = _tensor_to_png_bytes(image_tensor)
-    name = f"digit_{label}_{uuid.uuid4().hex[:8]}.png"
-    return _upload_bytes(headers, png_bytes, name, "image/png")
+    if image_tensor is None or image_tensor.ndim != 4 or image_tensor.shape[0] < 1:
+        raise ValueError("Image input must be a non-empty ComfyUI IMAGE batch.")
+
+    image_array = image_tensor[0]
+    if hasattr(image_array, "detach"):
+        image_array = image_array.detach().cpu().numpy()
+    else:
+        image_array = np.asarray(image_array)
+    image_array = (image_array * 255).clip(0, 255).astype(np.uint8)
+    if image_array.shape[-1] == 4:
+        image = Image.fromarray(image_array, mode="RGBA").convert("RGB")
+    else:
+        image = Image.fromarray(image_array, mode="RGB")
+
+    image, _ = _fit_image_within_edge(image)
+    file_bytes, content_type, ext = _encode_image_bytes(image)
+    name = f"digit_{label}_{uuid.uuid4().hex[:8]}{ext}"
+    return _upload_bytes(headers, file_bytes, name, content_type)
 
 
 def upload_video(headers, video_obj, temp_dir, label="video"):

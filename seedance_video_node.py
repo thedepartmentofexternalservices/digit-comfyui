@@ -323,7 +323,11 @@ class DigitDanceVideo:
                     "default": 4,
                     "min": 1,
                     "max": MAX_BATCH_COUNT,
-                    "tooltip": "Cost driver #3 — you pay per clip. Submits this many generations before polling.",
+                    "tooltip": (
+                        "Cost driver #3 — you pay per clip. Submits this many "
+                        "jobs, then waits for all of them. MUAPI often runs "
+                        "clips one after another; wait scales with batch size."
+                    ),
                 }),
                 "seed": ("INT", {
                     "default": 0,
@@ -950,7 +954,6 @@ class DigitDanceVideo:
     def _run_muapi_batch(self, headers, endpoint, payload, batch_count):
         """Submit batch_count identical requests, then poll them all to terminal."""
         jobs = []
-        pending = set()
         for index in range(batch_count):
             job = {"index": index, "request_id": None, "result": None, "error": ""}
             jobs.append(job)
@@ -958,7 +961,6 @@ class DigitDanceVideo:
                 job["request_id"] = muapi_client.submit(
                     headers, endpoint, payload, log_prefix="[DigitDance:muapi]"
                 )
-                pending.add(index)
                 logger.info(
                     "[DigitDance] muapi job %d/%d submitted: %s",
                     index + 1, batch_count, job["request_id"],
@@ -971,54 +973,24 @@ class DigitDanceVideo:
                 )
 
         pbar = comfy.utils.ProgressBar(len(jobs))
-        completed_count = len(jobs) - len(pending)
-        if completed_count:
-            pbar.update_absolute(completed_count)
 
-        deadline = time.monotonic() + muapi_client.MAX_WAIT_SECONDS
-        while pending:
+        def on_progress(completed, _total):
+            if pbar is not None:
+                pbar.update_absolute(completed)
+
+        def abort_fn():
             from comfy.model_management import throw_exception_if_processing_interrupted
             throw_exception_if_processing_interrupted()
 
-            if time.monotonic() > deadline:
-                for index in pending:
-                    jobs[index]["error"] = (
-                        f"Timed out after {muapi_client.MAX_WAIT_SECONDS}s "
-                        f"(request_id={jobs[index]['request_id']})"
-                    )
-                break
-
-            for index in list(pending):
-                job = jobs[index]
-                try:
-                    result = muapi_client.poll_status(
-                        headers, job["request_id"], log_prefix="[DigitDance:muapi]"
-                    )
-                except Exception as error:
-                    logger.warning(
-                        "[DigitDance] muapi status check failed for job %d: %s",
-                        index + 1, error,
-                    )
-                    continue
-
-                status = str(result.get("status", "")).lower()
-                if status == "completed":
-                    job["result"] = result
-                elif status in muapi_client.TERMINAL_FAILURE_STATES:
-                    job["error"] = str(
-                        result.get("error") or f"Generation {status}."
-                    )
-                else:
-                    continue
-
-                pending.remove(index)
-                completed_count += 1
-                pbar.update_absolute(completed_count)
-
-            if pending:
-                time.sleep(muapi_client.POLL_INTERVAL_SECONDS)
-
-        return jobs
+        return muapi_client.run_batch_poll(
+            jobs,
+            lambda request_id: muapi_client.poll_status(
+                headers, request_id, log_prefix="[DigitDance:muapi]"
+            ),
+            batch_count=batch_count,
+            abort_fn=abort_fn,
+            on_progress=on_progress,
+        )
 
     # ------------------------------------------------------------------
     # Replicate backend
