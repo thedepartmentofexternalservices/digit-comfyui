@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+import shutil
 import subprocess
 import uuid
 from dataclasses import dataclass
@@ -19,6 +20,45 @@ logger = logging.getLogger("DigitMediaSanitize")
 
 JPEG_QUALITY = 95
 MIN_REDUCED_EDGE = 512
+
+
+def _ffmpeg_executable():
+    executable = shutil.which("ffmpeg")
+    if executable:
+        return executable
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except (ImportError, RuntimeError) as error:
+        raise ValueError(
+            "ffmpeg is required to sanitize reference videos. Install ffmpeg "
+            "or the imageio-ffmpeg Python package."
+        ) from error
+
+
+def _probe_video_with_imageio(path):
+    try:
+        import imageio_ffmpeg
+    except ImportError as error:
+        raise ValueError(
+            "ffprobe is unavailable and imageio-ffmpeg is not installed."
+        ) from error
+    reader = imageio_ffmpeg.read_frames(path, pix_fmt="rgb24")
+    try:
+        metadata = next(reader)
+    except Exception as error:
+        raise ValueError(f"Could not inspect reference video '{path}': {error}") from error
+    finally:
+        reader.close()
+    width, height = metadata.get("source_size") or metadata.get("size") or (0, 0)
+    return {
+        "width": int(width),
+        "height": int(height),
+        "duration": float(metadata.get("duration") or 0),
+        "codec": str(metadata.get("codec") or "unknown"),
+        "bytes": os.path.getsize(path),
+    }
 
 
 @dataclass(frozen=True)
@@ -180,6 +220,11 @@ def sanitize_image_batch(
 
 
 def probe_video(path, *, runner=subprocess.run):
+    if runner is subprocess.run and shutil.which("ffprobe") is None:
+        result = _probe_video_with_imageio(path)
+        if result["width"] < 1 or result["height"] < 1:
+            raise ValueError(f"Reference video '{path}' has invalid dimensions.")
+        return result
     command = [
         "ffprobe",
         "-v",
@@ -270,7 +315,11 @@ def sanitize_reference_video(
                 f"digit_{label}_sanitized_{uuid.uuid4().hex[:8]}.mp4",
             )
             command = [
-                "ffmpeg",
+                (
+                    _ffmpeg_executable()
+                    if runner is subprocess.run
+                    else "ffmpeg"
+                ),
                 "-y",
                 "-i",
                 source_path,
