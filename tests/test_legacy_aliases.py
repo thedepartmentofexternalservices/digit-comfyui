@@ -48,6 +48,14 @@ def test_digit_replicate_seedance_registered():
     assert "DigitReplicateSeedance" in class_keys
     assert "DigitReplicateSeedance" in display_keys
     assert "[deprecated]" in display["DigitReplicateSeedance"]
+    assert "2.5" in display["DigitDanceVideo"]
+
+
+def test_digit_uber_saver_registered():
+    class_keys, display, display_keys = _parse_init_mappings()
+    assert "DigitUberSaver" in class_keys
+    assert "DigitUberSaver" in display_keys
+    assert display["DigitUberSaver"] == "DIGIT Uber Saver"
 
 
 def test_legacy_alias_map_matches_registration():
@@ -77,16 +85,18 @@ def test_legacy_alias_preserves_widget_surface(alias, widget_key, expected_value
     assert default == expected_value
 
 
-def test_digit_replicate_seedance_forwards_to_replicate(mocker):
+def test_digit_replicate_seedance_forwards_to_replicate(monkeypatch):
     from digit_loader import load_digit_module
 
     seedance = load_digit_module("seedance_video_node")
     cls = seedance.DigitReplicateSeedance
-    spy = mocker.patch.object(
-        seedance.DigitDanceVideo,
-        "generate",
-        return_value=({"ui": {}},),
-    )
+    calls = []
+
+    def fake_generate(self, **kwargs):
+        calls.append(kwargs)
+        return ({"ui": {}},)
+
+    monkeypatch.setattr(seedance.DigitDanceVideo, "generate", fake_generate)
     cls().generate(
         prompt="test",
         resolution="720p",
@@ -95,6 +105,80 @@ def test_digit_replicate_seedance_forwards_to_replicate(mocker):
         generate_audio=True,
         seed=42,
     )
-    spy.assert_called_once()
-    assert spy.call_args.kwargs["provider"] == "replicate"
-    assert spy.call_args.kwargs["model"] == "seedance-2.0"
+    assert len(calls) == 1
+    assert calls[0]["provider"] == "replicate"
+    assert calls[0]["model"] == "seedance-2.0"
+
+
+def test_digit_dance_video_exposes_25_edit_and_same_as_input():
+    from digit_loader import load_digit_module
+
+    seedance = load_digit_module("seedance_video_node")
+    pricing = load_digit_module("seedance_pricing")
+    types = seedance.DigitDanceVideo.INPUT_TYPES()
+    required = types["required"]
+    optional = types["optional"]
+    assert "seedance-2.5" in required["model"][0]
+    assert tuple(seedance.MODELS) == pricing.SEEDANCE_MODELS
+    assert "same_as_input" in required["duration"][0]
+    assert "30" in required["duration"][0]
+    assert "source_video" in optional
+    assert "video_task" in optional
+    assert "edit" in optional["video_task"][0]
+    assert "2.5" in seedance.DigitDanceVideo.DESCRIPTION
+    assert "Digit Dance" in seedance.DigitDanceVideo.DESCRIPTION
+
+
+def _seedance_kwargs(**overrides):
+    kwargs = {
+        "prompt": "a clip",
+        "provider": "muapi",
+        "model": "seedance-2.5",
+        "resolution": "720p",
+        "aspect_ratio": "16:9",
+        "duration": "5",
+        "generate_audio": True,
+        "bitrate_mode": "standard",
+        "batch_count": 1,
+        "seed": 0,
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_generate_rejects_replicate_25():
+    from digit_loader import load_digit_module
+
+    seedance = load_digit_module("seedance_video_node")
+    with pytest.raises(ValueError, match="not available on Replicate"):
+        seedance.DigitDanceVideo().generate(**_seedance_kwargs(provider="replicate"))
+
+
+def test_generate_rejects_source_video_on_20():
+    from digit_loader import load_digit_module
+
+    seedance = load_digit_module("seedance_video_node")
+    with pytest.raises(ValueError, match="requires model=seedance-2.5"):
+        seedance.DigitDanceVideo().generate(
+            **_seedance_kwargs(model="seedance-2.0", source_video=object())
+        )
+
+
+def test_generate_rejects_numeric_duration_on_edit():
+    from digit_loader import load_digit_module
+
+    seedance = load_digit_module("seedance_video_node")
+    with pytest.raises(ValueError, match="always matches the source"):
+        seedance.DigitDanceVideo().generate(
+            **_seedance_kwargs(source_video=object(), duration="8")
+        )
+
+
+def test_generate_rejects_30s_on_20():
+    from digit_loader import load_digit_module
+
+    seedance = load_digit_module("seedance_video_node")
+    with pytest.raises(ValueError, match="exceeds"):
+        seedance.DigitDanceVideo().generate(
+            **_seedance_kwargs(model="seedance-2.0", duration="30")
+        )

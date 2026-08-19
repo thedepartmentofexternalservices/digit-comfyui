@@ -10,6 +10,7 @@ import folder_paths
 from .projekts_utils import (
     get_available_projekts_roots,
     next_frame,
+    next_output_path,
     resolve_pipeline_dir,
 )
 
@@ -19,6 +20,7 @@ logger = logging.getLogger("DigitVideoSaver")
 BATCH_VIDEO_NODE_TYPES = frozenset({
     "DigitDanceVideo",
     "DigitReplicateSeedance",
+    "DigitH3Video",
     "DigitVeoVideo",
     "DigitOmniVideo",
 })
@@ -32,6 +34,8 @@ BATCH_TEMP_GLOBS = {
     "replicate_seedance_": "replicate_seedance_{ts}_{uid}_*.mp4",
     "veo_": "veo_{ts}_{uid}_*.mp4",
     "omni_": "omni_{ts}_{uid}_*.mp4",
+    "h3_": "h3_{ts}_{uid}_*.mp4",
+    "minimax_": "minimax_{ts}_{uid}_*.mp4",
 }
 
 
@@ -147,9 +151,12 @@ class DigitVideoSaver:
             "required": {
                 "projekts_root": (available_roots,),
                 "project": ([""],),
-                "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
-                "subfolder": ("STRING", {"default": "comfy"}),
-                "task": ("STRING", {"default": "comp"}),
+                "shot": ([""],),
+                "folder": (["comfy/comp"],),
+                "filename": ("STRING", {
+                    "default": "",
+                    "tooltip": "What to name the file. Leave empty for PREFIX_SHOT_TASK. Frame number and extension are added.",
+                }),
                 "start_frame": ("INT", {"default": 1001, "min": 0, "max": 99999999, "step": 1}),
                 "frame_pad": ("INT", {"default": 4, "min": 1, "max": 8, "step": 1}),
                 "save_workflow": (["ui", "api", "ui + api", "none"],),
@@ -157,6 +164,8 @@ class DigitVideoSaver:
             "optional": {
                 "video": ("VIDEO",),
                 "video_paths": ("VIDEO_PATHS",),
+                "subfolder": ("STRING", {"default": "comfy"}),
+                "task": ("STRING", {"default": "comp"}),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -173,16 +182,26 @@ class DigitVideoSaver:
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
-    def save_video(self, projekts_root, project, shot, subfolder, task,
-                   start_frame, frame_pad, save_workflow,
+    def save_video(self, projekts_root, project, shot, subfolder="comfy",
+                   task="comp", start_frame=1001, frame_pad=4,
+                   save_workflow="none", filename="", folder="",
                    video=None, video_paths=None,
                    prompt=None, extra_pnginfo=None, unique_id=None):
         prefix = project[:5]
         ext = "mp4"
-        target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
+        if folder or filename:
+            output = next_output_path(
+                projekts_root, project, shot, folder or f"{subfolder}/{task}",
+                filename, ext, start_frame, frame_pad,
+            )
+            target_dir = output["directory"]
+            stem = output["stem"]
+            frame_num = output["frame"]
+        else:
+            target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
+            stem = f"{prefix}_{shot}_{task}"
+            frame_num = next_frame(target_dir, prefix, shot, task, ext, start_frame, frame_pad)
         os.makedirs(target_dir, exist_ok=True)
-
-        frame_num = next_frame(target_dir, prefix, shot, task, ext, start_frame, frame_pad)
 
         metadata = {}
         if prompt is not None:
@@ -201,7 +220,7 @@ class DigitVideoSaver:
         saved_paths = []
         for i, src_path in enumerate(source_paths):
             current_frame = frame_num + i
-            filename = f"{prefix}_{shot}_{task}.{current_frame:0{frame_pad}d}.{ext}"
+            filename = f"{stem}.{current_frame:0{frame_pad}d}.{ext}"
             filepath = os.path.join(target_dir, filename)
 
             if os.path.isfile(src_path):

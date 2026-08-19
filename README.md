@@ -22,15 +22,15 @@ This means:
 
 ## The Nodes
 
-**52 nodes** registered in v4.0.1 (including 1 deprecated alias). All appear under the **DIGIT** category unless noted.
+**53 nodes** registered in v4.1.0 (including 1 deprecated alias). All appear under the **DIGIT** category unless noted.
 
 | Family | Nodes |
 |--------|-------|
 | **Image generation** | [Gemini Image](#digit-gemini-image) · [GPT Image](#digit-gpt-image) · [Seedream Image](#digit-seedream-image) · [Batch Gemini Image](#digit-batch-gemini-image) |
-| **Video generation** | [Veo Video](#digit-veo-video) · [Gemini Omni Video](#digit-gemini-omni-video) · [Seedance Video](#digit-seedance-video) · [Seedance Video (Replicate)](#digit-seedance-video) [deprecated] · [MU Seedance 2 Character](#digit-mu-seedance-2-character) |
+| **Video generation** | [Veo Video](#digit-veo-video) · [Gemini Omni Video](#digit-gemini-omni-video) · [Seedance Video](#digit-seedance-video) · [MiniMax Video](#digit-minimax-video) · [Seedance Video (Replicate)](#digit-seedance-video) [deprecated] · [MU Seedance 2 Character](#digit-mu-seedance-2-character) |
 | **LLM & prompts** | [LLM Query](#digit-llm-query) · [Random Prompt](#digit-random-prompt) · [Prompt Combine](#digit-prompt-combine) · [Text Encode](#digit-text-encode) |
 | **Subtitles / SRT** | [SRT Maker](#digit-srt-maker) · [SRT From Video](#digit-srt-from-video) · [Batch SRT From Video](#digit-batch-srt-from-video) · [SRT Tools](#digit-srt-tools) · [SRT Preview](#digit-srt-preview) |
-| **Pipeline I/O** | [Image Saver](#digit-image-saver) · [Video Saver](#digit-video-saver) · [Image Loader](#digit-image-loader) · [Drag Crop](#digit-drag-crop) · [Crop Info](#digit-crop-info) |
+| **Pipeline I/O** | [Uber Saver](#digit-uber-saver) · [Image Saver](#digit-image-saver) · [Video Saver](#digit-video-saver) · [Image Loader](#digit-image-loader) · [Drag Crop](#digit-drag-crop) · [Crop Info](#digit-crop-info) |
 | **Dataset & captioning** | [Batch Caption](#digit-batch-caption) · [Caption Viewer](#digit-caption-viewer) · [Caption Find & Replace](#digit-caption-find--replace) · [Dataset Prep](#digit-dataset-prep) |
 | **LoRA training** | [Dataset Manager](#digit-lora-training-suite) · [Captioner](#digit-lora-training-suite) · [Caption Preset Manager](#digit-lora-training-suite) · [LoRA Trainer](#digit-lora-training-suite) · [LoRA Loader (training)](#digit-lora-training-suite) · [Naming / Trigger / Sample Prompt Presets](#digit-lora-training-suite) · [LoRA Loader](#digit-lora-loader) · [LoRA Loader (Model Only)](#digit-lora-loader) |
 | **ElevenLabs** (`DIGIT/ElevenLabs`) | [Voice Selector](#digit-elevenlabs-suite) · [Text to Speech](#digit-elevenlabs-suite) · [Speech to Text](#digit-elevenlabs-suite) · [Sound Effects](#digit-elevenlabs-suite) · [Voice Isolation](#digit-elevenlabs-suite) · [Voice Clone](#digit-elevenlabs-suite) · [Speech to Speech](#digit-elevenlabs-suite) · [Dialogue](#digit-elevenlabs-suite) |
@@ -148,22 +148,27 @@ Every Veo video generation — whether through Google's AI Studio, the web conso
 
 ### DIGIT Seedance Video
 
-Generate videos with ByteDance's Seedance 2.0 through your choice of three API providers — one node, one `provider` dropdown. Mode auto-detects from connected inputs, same as the Veo node:
+Node menu name: **DIGIT Seedance Video (2.0 / 2.5)** (class `DigitDanceVideo`, still called Digit Dance). Seedance 2.5 is the `seedance-2.5` item on the **model** dropdown, not a separate node. Saved Digit Dance nodes pick up new model/duration lists after a pack update plus a browser hard-refresh.
+
+Generate videos with ByteDance's Seedance 2.0 or 2.5 through your choice of three API providers — one node, one `provider` dropdown. Mode auto-detects from connected inputs, same as the Veo node:
 
 - **Nothing connected** → text-to-video
 - **first_frame connected** → image-to-video
 - **first_frame + last_frame** → first/last-frame interpolation
 - **reference inputs connected** → reference-to-video (up to 9 images, 3 videos, 3 audio; reference them in the prompt as `@Image1`, `@Video1`, `@Audio1`)
+- **source_video connected** → video edit (Seedance 2.5). Set `video_task` to `extend` to continue from the last frame instead.
+
+**Models:** `seedance-2.0` (default), `seedance-2.0-fast` (fal only, 480p/720p), `seedance-2.5` (fal 480p/720p native; MUAPI 480p–4K, 30s clips, video edit/extend). Replicate is 2.0 only. MUAPI 2.5 1080p/4K endpoints are **upscaled from 720p**, not native 4K. 2.0 VIP 4K stays the native (and cheaper) 4K auto-route.
 
 **Providers:**
 
 | Provider | Env var | Content filtering | Notes |
 |----------|---------|-------------------|-------|
-| `fal` (default) | `FAL_KEY` | Strict — blocks real people and likenesses | Fastest queue. Supports the `seedance-2.0-fast` model at 480p/720p. |
-| `muapi` | `MUAPIAPP_API_KEY` | Low/reduced — people OK | Cheapest at 480p/720p; the only low-censorship route to 1080p/4K. |
-| `replicate` | `REPLICATE_API_TOKEN` | ByteDance stock filter — blocks sensitive content incl. people | Backup provider. Supports `negative_prompt`. |
+| `fal` (default) | `FAL_KEY` | Strict — blocks real people and likenesses | Fastest queue. Supports `seedance-2.0-fast` and `seedance-2.5` at 480p/720p. |
+| `muapi` | `MUAPIAPP_API_KEY` | Low/reduced — people OK | Cheapest at 480p/720p on 2.0; the only low-censorship route to 1080p/4K. Seedance 2.5 is opt-in via the `model` dropdown. |
+| `replicate` | `REPLICATE_API_TOKEN` | ByteDance stock filter — blocks sensitive content incl. people | Backup provider. Supports `negative_prompt`. 2.0 only. |
 
-**MUAPI auto-routing:** artists pick a resolution and go. With `muapi_route` set to `auto` (the default), the node picks the cheapest low-censorship MUAPI endpoint for the requested (mode, resolution):
+**MUAPI auto-routing:** artists pick a resolution and go. With `muapi_route` set to `auto` (the default), the node picks the cheapest low-censorship MUAPI endpoint for the requested (mode, resolution) on **2.0**. Switch `model` to `seedance-2.5` to use the 2.5 family instead (do not change 2.0 auto-routes — 2.5 is more expensive).
 
 | Mode | 480p | 720p | 1080p | 4K |
 |------|------|------|-------|-----|
@@ -172,7 +177,9 @@ Generate videos with ByteDance's Seedance 2.0 through your choice of three API p
 | first/last frame | VIP fast $0.21/s | VIP fast $0.21/s | VIP $0.675/s | VIP $1.35/s |
 | reference (omni) | mini-omni $0.08/s | mini-omni $0.15/s | VIP $0.675/s | VIP $1.35/s |
 
-mini/mini-spicy tiers only exist at 480p/720p; 1080p/4K upgrade automatically to VIP endpoints (also low censorship). The `muapi_route` dropdown is the escape hatch for forcing VIP priority queue or a specific tier. All routing and pricing data lives in `seedance_pricing.py` — repricing is a one-file edit.
+**Seedance 2.5 MUAPI (opt-in):** $0.17/s 480p, $0.34/s 720p, $0.85/s 1080p (upscaled), $1.70/s 4K (upscaled). Video edit/extend: $0.1105 / $0.221 / $0.5525 / $1.105 per second, billed on source duration **plus** output duration.
+
+mini/mini-spicy tiers only exist at 480p/720p; 1080p/4K upgrade automatically to VIP endpoints (also low censorship). The `muapi_route` dropdown is the escape hatch for forcing VIP priority queue, a specific 2.0 tier, or a 2.5 slug. All routing and pricing data lives in `seedance_pricing.py` — repricing is a one-file edit.
 
 **Live cost strip:** the node shows a two-line estimate at the bottom that updates as you change provider, resolution, duration, or batch count:
 
@@ -187,15 +194,83 @@ fal and replicate answer from the static price table; muapi proxies its live est
 
 | Provider | 480p | 720p | 1080p | 4K |
 |----------|------|------|-------|-----|
-| muapi (auto) | $0.08 | $0.15 | $0.675 | $1.35 |
+| muapi (auto 2.0) | $0.08 | $0.15 | $0.675 | $1.35 |
+| muapi 2.5 | $0.17 | $0.34 | $0.85 | $1.70 |
 | replicate | $0.08 | $0.18 | $0.45 | $1.00 |
-| fal | $0.14 | $0.30 | $0.68 | $1.56 |
+| fal 2.0 | $0.14 | $0.30 | $0.68 | $1.56 |
+| fal 2.5 | $0.22 | $0.47 | — | — |
 
 Replicate is cheaper than MUAPI at 1080p/4K — but only MUAPI passes people through its filter. Pick by content, not just price.
 
-**Other inputs:** `duration` (4-15s or `auto`; MUAPI requires a number), `aspect_ratio`, `generate_audio`, `bitrate_mode` (fal + muapi), `batch_count` (1-8, submits all before polling), `seed` (fal + replicate; MUAPI has no seed input), `negative_prompt` (replicate only).
+**Other inputs:** `duration` (4-15s on 2.0, 4-30s on 2.5, `auto`, or `same_as_input` which probes the first connected source/reference video). Video edit inherits the source length — use `same_as_input` or `auto`. MUAPI still needs a number except on video edit. `aspect_ratio`, `generate_audio`, `bitrate_mode` (2.0 fal + muapi), `batch_count` (1-8, submits all before polling), `seed` (fal + replicate; MUAPI Seedance 2.5 also accepts seed), `negative_prompt` (replicate only), `video_task` (`auto` / `edit` / `extend` when `source_video` is connected).
 
 **Outputs:** `video` (first clip), `video_paths` (all clips, feed to Video Saver), `status` (provider, route, cost, per-job request IDs).
+
+---
+
+### DIGIT MiniMax Video
+
+Generate videos with MiniMax H3 (Hailuo 03) through fal or MUAPI — one node, one `provider` dropdown. Mode auto-detects from connected inputs, same as Seedance:
+
+- **Nothing connected** → text-to-video
+- **first_frame connected** → image-to-video
+- **first_frame + last_frame** → first/last-frame interpolation
+- **reference inputs connected** → reference-to-video (up to 9 images, 3 videos, 3 audio; cite them in the prompt as `Image 1`, `Video 1`, `Audio 1`)
+
+H3 outputs native stereo audio on every generation. There is no separate `generate_audio` toggle.
+
+**Providers:**
+
+| Provider | Env var | Notes |
+|----------|---------|-------|
+| `fal` (default) | `FAL_KEY` | `minimax/h3/*` endpoints. Supports 768P, 2K, and 4K. Optional `enable_prompt_expansion` and `enable_safety_checker`. |
+| `muapi` | `MUAPIAPP_API_KEY` | `minimax-h3-*` endpoints. **2K only** today. Offline pricing fallback in `h3_pricing.py`. |
+| `replicate` | `REPLICATE_API_TOKEN` | Hidden until `REPLICATE_MODEL` is set in `h3_models.py`. |
+
+**Example workflow:** [`workflows/minimax_h3_t2v.json`](workflows/minimax_h3_t2v.json)
+
+**Smoke test:** `python scripts/manual/h3_smoke.py --provider fal` (validates env, inputs, and live pricing without ComfyUI).
+
+**Live endpoint test (fal + MUAPI):** exercises T2V, I2V, and R2V with a generated test image against real APIs:
+
+```bash
+export FAL_KEY=...
+export MUAPIAPP_API_KEY=...
+python scripts/manual/h3_integration_test.py
+
+# Save MP4s locally, fal only, skip R2V:
+python scripts/manual/h3_integration_test.py --provider fal --modes text_to_video,image_to_video --output-dir /tmp/h3-live
+```
+
+Pytest equivalent (skipped in CI by default; needs keys):
+
+```bash
+pytest -m integration tests/test_h3_integration_live.py -v --override-ini "addopts="
+```
+
+**Architecture:** validation and payload builders live in [`h3_payloads.py`](h3_payloads.py); provider I/O in [`h3_backends.py`](h3_backends.py); shared download/retry helpers in [`digit_video_common.py`](digit_video_common.py).
+
+**Troubleshooting:**
+
+| Error | Fix |
+|-------|-----|
+| `FAL_KEY environment variable is not set` | Export `FAL_KEY` before starting ComfyUI. |
+| `MUAPI supports 2K only` | Set resolution to `2K` when using muapi. |
+| `Reference-to-video requires at least one reference_image or reference_video` | Connect a reference image or video; audio alone is not enough. |
+| `Refusing to download from untrusted URL host` | Provider returned an unexpected CDN URL; open an issue with the request ID from status. |
+| `Duration must be between 4 and 15` | Pick a duration in the supported range. |
+
+**Resolution:** `768P`, `2K`, `4K` on fal; MUAPI accepts `2K` only.
+
+**Duration:** 4–15 seconds (integer). Billed per second on fal ($0.26/s at 2K per fal's published rate).
+
+**Aspect ratio:** Fixed ratios for text-to-video (`adaptive` rejected). Image-to-video and first/last-frame follow the source image. Reference mode supports `adaptive`.
+
+**Other inputs:** `batch_count` (1–8), `enable_prompt_expansion` (fal only), `enable_safety_checker` (fal only). No `seed` input — fal and MUAPI H3 APIs do not expose seed control.
+
+**Live cost strip:** updates as you change provider, resolution, duration, or batch count. fal uses the static price table in `h3_pricing.py`; muapi proxies its live estimate-cost endpoint.
+
+**Outputs:** `video` (first clip), `video_paths` (all clips), `status` (provider, route, cost, per-job request IDs).
 
 ---
 
@@ -466,6 +541,27 @@ Total characters: 3842
 Avg chars/entry: 81
 Warnings: 3
 ```
+
+---
+
+### DIGIT Uber Saver
+
+One node to rule them all. Connect an image or video, pick the destination, and save it with the same pipeline naming rules.
+
+**Visible controls:**
+
+| Input | Type | Description |
+|-------|------|-------------|
+| media | IMAGE, VIDEO, or VIDEO_PATHS | Image, image batch, video, or video-path batch. |
+| project | COMBO | Existing `#####_` project. |
+| shot | COMBO | Existing shot, or make one with **+ Shot**. |
+| folder | COMBO | Existing path under the shot, or make one with **+ Folder**. Paths can be eight levels deep. |
+| name | STRING | File name without frame or extension. Empty uses `PREFIX_SHOT_FOLDER`. |
+| Next output | READ ONLY | Full path and next available frame before saving. |
+
+**Advanced** contains the PROJEKTS root, image format, JPEG quality, EXR tone mapping, start frame, frame padding, preview, and workflow metadata. Video always saves as MP4.
+
+After saving, the node shows the saved path and advances **Next output** to the next frame.
 
 ---
 
@@ -905,12 +1001,21 @@ cd comfyui-digit
 pip install -r requirements.txt
 ```
 
-### Deploy to GCP ComfyUI VMs
-If your fleet runs ComfyUI on Compute Engine with `comfyui-digit` cloned into `custom_nodes`, update all nodes from a machine with `gcloud` access:
+### Deploy to every ComfyUI install
+
+Fleet machines must track GitHub `master`, not a SHA pin. From a machine with `gcloud` access:
 
 ```bash
 gcloud config set project YOUR_PROJECT_ID
 ./scripts/deploy-gcp-comfyui.sh
+```
+
+That resets **every** `comfyui-digit` checkout on each running `comfy*` VM to `origin/master` (cherry-picks included) and restarts `comfyui`. Stopped VMs are listed, not started.
+
+On Flame, studio, or a Mac (paths auto-discovered, including Easy-Install):
+
+```bash
+./scripts/sync-comfyui-digit.sh
 ```
 
 Common overrides:
@@ -922,11 +1027,11 @@ INSTANCE_FILTER="labels.app=comfyui" ./scripts/deploy-gcp-comfyui.sh
 # Private VMs without external IPs
 USE_IAP=1 ./scripts/deploy-gcp-comfyui.sh
 
-# Custom install path or service name
-DIGIT_NODE_DIR="/opt/ComfyUI/custom_nodes/comfyui-digit" COMFYUI_SERVICE=comfyui ./scripts/deploy-gcp-comfyui.sh
+# Pin the remote path instead of auto-discovery
+DIGIT_NODE_DIR="/opt/comfyui/custom_nodes/comfyui-digit" ./scripts/deploy-gcp-comfyui.sh
 ```
 
-The script runs `git pull` on each matching VM and restarts the `comfyui` systemd service.
+Artists: hard-refresh the ComfyUI tab after the service comes back. Ansible must use `version: master` and `force: true` so the next `custom_nodes` play does not rewind the fleet. See [`ansible/README.md`](ansible/README.md).
 
 ---
 

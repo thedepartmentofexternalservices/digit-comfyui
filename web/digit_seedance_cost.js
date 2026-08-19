@@ -15,6 +15,7 @@ const WATCHED_WIDGETS = [
     "duration",
     "batch_count",
     "muapi_route",
+    "video_task",
 ];
 
 function detectMode(node) {
@@ -26,6 +27,10 @@ function detectMode(node) {
         (i) =>
             /^reference_(image|video|audio)\d+$/.test(i.name) && i.link != null
     );
+    if (linked("source_video")) {
+        const task = widgetValue(node, "video_task") || "auto";
+        return task === "extend" ? "video_extend" : "video_edit";
+    }
     if (anyRef) return "reference_to_video";
     if (linked("first_frame") && linked("last_frame")) return "first_last_frame";
     if (linked("first_frame")) return "image_to_video";
@@ -34,7 +39,9 @@ function detectMode(node) {
 
 function hasVideoRefs(node) {
     return (node.inputs || []).some(
-        (i) => /^reference_video\d+$/.test(i.name) && i.link != null
+        (i) =>
+            (i.name === "source_video" || /^reference_video\d+$/.test(i.name)) &&
+            i.link != null
     );
 }
 
@@ -43,14 +50,57 @@ function widgetValue(node, name) {
     return w ? w.value : undefined;
 }
 
+function comboValuesFromNodeData(node, widgetName) {
+    const input = node.constructor?.nodeData?.input || {};
+    const spec = input.required?.[widgetName] || input.optional?.[widgetName];
+    const values = spec && spec[0];
+    return Array.isArray(values) ? values : null;
+}
+
+function syncComboFromNodeData(node, widgetName) {
+    const values = comboValuesFromNodeData(node, widgetName);
+    const widget = (node.widgets || []).find((w) => w.name === widgetName);
+    if (!widget || !values || !values.length) return;
+    if (!widget.options) widget.options = {};
+    widget.options.values = values;
+}
+
+// Saved Digit Dance nodes keep the combo list from the session that created
+// them. After a pack update, copy the live /object_info lists so seedance-2.5
+// (and 16–30s / video_task) show up without deleting the node.
+function syncSeedanceWidgets(node) {
+    for (const name of [
+        "model",
+        "duration",
+        "video_task",
+        "provider",
+        "resolution",
+        "muapi_route",
+        "bitrate_mode",
+        "aspect_ratio",
+    ]) {
+        syncComboFromNodeData(node, name);
+    }
+}
+
 function titleCase(name) {
     return name ? name.charAt(0).toUpperCase() + name.slice(1) : "";
 }
 
 function shortRoute(summary) {
     if (summary.provider === "muapi") {
+        const route = summary.route || "";
+        if (route.startsWith("seedance-2.5")) {
+            if (route.includes("-spicy-") || route.startsWith("seedance-2.5-spicy")) {
+                return "2.5-spicy";
+            }
+            if (route.includes("-intl-") || route.startsWith("seedance-2.5-intl")) {
+                return "2.5-intl";
+            }
+            return "2.5";
+        }
         // seedance-2-mini-spicy-text-to-video -> mini-spicy
-        const m = summary.route.match(/seedance-2-(mini-spicy|mini|spicy|vip)/);
+        const m = route.match(/seedance-2-(mini-spicy|mini|spicy|vip)/);
         const tier = m ? m[1] : "global";
         return `${tier}`;
     }
@@ -66,12 +116,11 @@ function renderSummary(data, node) {
     if (data.range) {
         const low = data.low;
         const high = data.high;
-        const autoMax = data.auto_max_duration || 15;
         const line1 = `${titleCase(low.provider)} · ${low.filter} · ${shortRoute(low)} ${resolution}`;
         const line2 =
             low.total == null || high.total == null
                 ? `Est. n/a — ${low.note || high.note || "no published price"}`
-                : `Est. ${formatMoney(low.total)}–${formatMoney(high.total)}  (${low.clips} clip${low.clips > 1 ? "s" : ""} × 4–${autoMax}s auto)`;
+                : `Est. ${formatMoney(low.total)}–${formatMoney(high.total)}  (${low.clips} clip${low.clips > 1 ? "s" : ""} × ${data.duration_span || "4–15s auto"})`;
         return [line1, line2];
     }
     const s = data.summary;
@@ -91,6 +140,8 @@ app.registerExtension({
 
     async nodeCreated(node) {
         if (node.comfyClass !== "DigitDanceVideo") return;
+
+        syncSeedanceWidgets(node);
 
         const strip = node.addWidget("text", "cost_estimate", "", () => {}, {
             multiline: true,
@@ -157,7 +208,19 @@ app.registerExtension({
             refresh();
         };
 
+        const onConfigure = node.onConfigure;
+        node.onConfigure = function (...args) {
+            if (onConfigure) onConfigure.apply(this, args);
+            syncSeedanceWidgets(node);
+            refresh();
+        };
+
         // First estimate once the node settles.
         setTimeout(refresh, 100);
+    },
+
+    async loadedGraphNode(node) {
+        if (node.comfyClass !== "DigitDanceVideo") return;
+        syncSeedanceWidgets(node);
     },
 });

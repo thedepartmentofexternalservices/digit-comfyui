@@ -19,7 +19,6 @@ from PIL import Image
 logger = logging.getLogger("DigitMediaSanitize")
 
 JPEG_QUALITY = 95
-MIN_REDUCED_EDGE = 512
 
 
 def _ffmpeg_executable():
@@ -181,7 +180,7 @@ def sanitize_image_batch(
             extension = ".jpg"
             if len(data) <= max_bytes:
                 break
-            if image.width <= MIN_REDUCED_EDGE and image.height <= MIN_REDUCED_EDGE:
+            if image.width <= 1 and image.height <= 1:
                 raise ValueError(
                     f"{label} remains over {max_bytes} bytes after reducing "
                     f"to {image.width}x{image.height}."

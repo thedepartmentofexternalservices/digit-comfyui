@@ -97,6 +97,7 @@ def test_health_reports_reachable_root(tmp_path, monkeypatch):
     assert payload["roots"][0]["path"] == str(tmp_path / "PROJEKTS")
     assert payload["roots"][0]["reachable"] is True
     assert payload["roots"][0]["project_count"] == 1
+    assert "seedance-2.5" in payload["seedance_models"]
 
 
 def test_subfolders_and_tasks_list_children(tmp_path, monkeypatch):
@@ -186,3 +187,84 @@ def test_health_is_503_when_root_unlistable(tmp_path, monkeypatch):
     assert status == 503
     assert payload["ok"] is False
     assert payload["last_scan_error"] is not None
+
+
+def test_folders_lists_nested_paths(tmp_path, monkeypatch):
+    async def body(client, root):
+        shot_dir = tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh010"
+        (shot_dir / "comfy" / "comp").mkdir(parents=True)
+        (shot_dir / "plates").mkdir()
+        listed = await client.get(
+            "/digit/folders",
+            params={"root": root, "project": "12345_demo", "shot": "sh010"},
+        )
+        missing = await client.get(
+            "/digit/folders",
+            params={"root": root, "project": "12345_demo", "shot": ""},
+        )
+        return listed.status, await listed.json(), missing.status
+
+    status, folders, missing_status = _run(tmp_path, monkeypatch, body)
+    assert status == 200
+    assert folders == ["comfy", "comfy/comp", "plates"]
+    assert missing_status == 400
+
+
+def test_create_folder_makes_nested_path(tmp_path, monkeypatch):
+    async def body(client, root):
+        resp = await client.post("/digit/create_folder", json={
+            "root": root,
+            "project": "12345_demo",
+            "shot": "sh010",
+            "folder": "comfy/comp/v001",
+        })
+        payload = await resp.json()
+        return resp.status, payload
+
+    status, payload = _run(tmp_path, monkeypatch, body)
+    assert status == 200
+    assert payload["folder"] == "comfy/comp/v001"
+    assert payload["ok"] is True
+    created = tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh010" / "comfy" / "comp" / "v001"
+    assert created.is_dir()
+
+
+def test_output_preview_returns_next_path_without_writing(tmp_path, monkeypatch):
+    async def body(client, root):
+        target = (
+            tmp_path / "PROJEKTS" / "12345_demo" / "shots" / "sh010"
+            / "comfy" / "comp" / "v001"
+        )
+        target.mkdir(parents=True)
+        (target / "12345_hero_wide.1001.png").write_bytes(b"existing")
+        common = {
+            "root": root,
+            "project": "12345_demo",
+            "shot": "sh010",
+            "folder": "comfy/comp/v001",
+            "filename": "hero_wide",
+            "start_frame": "1001",
+            "frame_pad": "4",
+        }
+        image = await client.get(
+            "/digit/output_preview",
+            params={**common, "saver": "image", "format": "png"},
+        )
+        video = await client.get(
+            "/digit/output_preview",
+            params={**common, "saver": "video"},
+        )
+        return (
+            image.status, await image.json(),
+            video.status, await video.json(),
+            sorted(path.name for path in target.iterdir()),
+        )
+
+    image_status, image_payload, video_status, video_payload, names = _run(
+        tmp_path, monkeypatch, body
+    )
+    assert image_status == 200
+    assert image_payload["filename"] == "12345_hero_wide.1002.png"
+    assert video_status == 200
+    assert video_payload["filename"] == "12345_hero_wide.1001.mp4"
+    assert names == ["12345_hero_wide.1001.png"]

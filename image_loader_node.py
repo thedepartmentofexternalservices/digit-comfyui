@@ -13,10 +13,12 @@ from server import PromptServer
 
 from .projekts_utils import (
     FRAME_RE,
+    effective_folder,
+    folder_task_name,
     get_available_projekts_roots,
     is_placeholder,
     is_within_roots,
-    resolve_pipeline_dir,
+    resolve_folder_dir,
 )
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".exr", ".tif", ".tiff", ".bmp", ".webp"}
@@ -110,13 +112,13 @@ class DigitImageLoader:
             files = []
 
         available_roots = get_available_projekts_roots() or [""]
+
         return {
             "required": {
                 "projekts_root": (available_roots,),
                 "project": ([""],),
-                "shot": ("STRING", {"default": "", "tooltip": "Shot folder. Type a new name and click Create shot, or pick from the live list."}),
-                "subfolder": ("STRING", {"default": "comfy"}),
-                "task": ("STRING", {"default": "comp"}),
+                "shot": ([""],),
+                "folder": (["comfy/comp"],),
                 "format": (["png", "jpg", "exr", "tif", "tiff", "webp"],),
                 "frame_mode": (["latest", "pinned"], {"default": "latest", "tooltip": "latest loads the highest frame number; pinned loads the exact frame widget."}),
                 "frame": ("INT", {"default": 1001, "min": 0, "max": 99999999, "step": 1}),
@@ -126,6 +128,8 @@ class DigitImageLoader:
                 "browse_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Absolute path to an image file on the filesystem. Highest priority."}),
                 "upload_image": (sorted(files), {"image_upload": True, "tooltip": "Upload or select an image from ComfyUI's input folder."}),
                 "filepath": ("STRING", {"forceInput": True}),
+                "subfolder": ("STRING", {"default": "comfy"}),
+                "task": ("STRING", {"default": "comp"}),
             },
         }
 
@@ -135,7 +139,7 @@ class DigitImageLoader:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
-        """Return a stable key that changes when the selected source file changes."""
+        """Return a stable key that changes when the selected file changes."""
         source_path = cls._selected_source_path(**kwargs)
         signature = [source_path or "", kwargs.get("frame_mode"), kwargs.get("frame")]
         if source_path:
@@ -144,12 +148,7 @@ class DigitImageLoader:
                 signature.extend((stat.st_mtime_ns, stat.st_size))
             except OSError:
                 signature.append("missing")
-        else:
-            signature.extend(
-                kwargs.get(name)
-                for name in ("projekts_root", "project", "shot", "subfolder", "task", "format")
-            )
-        return hashlib.sha256(repr(tuple(signature)).encode("utf-8")).hexdigest()
+        return hashlib.sha256(repr(signature).encode()).hexdigest()
 
     @classmethod
     def _selected_source_path(cls, **kwargs):
@@ -157,46 +156,53 @@ class DigitImageLoader:
         if browse_path and os.path.isfile(browse_path):
             return browse_path
         upload_image = kwargs.get("upload_image")
-        if upload_image:
+        if upload_image is not None:
             path = folder_paths.get_annotated_filepath(upload_image)
             if os.path.isfile(path):
                 return path
-        filepath = str(kwargs.get("filepath") or "").strip()
+        filepath = kwargs.get("filepath")
         if filepath and os.path.isfile(filepath):
             return filepath
         try:
-            target_dir = resolve_pipeline_dir(
-                kwargs.get("projekts_root"),
-                kwargs.get("project"),
-                kwargs.get("shot"),
+            folder_path = effective_folder(
+                kwargs.get("folder", ""),
                 kwargs.get("subfolder", "comfy"),
                 kwargs.get("task", "comp"),
             )
-        except (TypeError, ValueError):
-            return None
-        loader = cls()
-        if kwargs.get("frame_mode", "latest") == "pinned":
-            path, _ = loader._find_frame(
-                target_dir,
-                str(kwargs.get("project") or "")[:5],
+            target_dir = resolve_folder_dir(
+                kwargs.get("projekts_root", ""),
+                kwargs.get("project", ""),
                 kwargs.get("shot", ""),
-                kwargs.get("task", "comp"),
-                kwargs.get("format", "png"),
-                kwargs.get("frame", 1001),
+                folder_path,
             )
-        else:
-            path, _ = loader._find_latest(
-                target_dir,
-                str(kwargs.get("project") or "")[:5],
-                kwargs.get("shot", ""),
-                kwargs.get("task", "comp"),
-                kwargs.get("format", "png"),
-            )
-        return path
+            task_name = folder_task_name(folder_path)
+            loader = cls()
+            if kwargs.get("frame_mode") == "pinned":
+                path, _ = loader._find_frame(
+                    target_dir,
+                    str(kwargs.get("project", ""))[:5],
+                    kwargs.get("shot", ""),
+                    task_name,
+                    kwargs.get("format", "png"),
+                    kwargs.get("frame", 1001),
+                )
+            else:
+                path, _ = loader._find_latest(
+                    target_dir,
+                    str(kwargs.get("project", ""))[:5],
+                    kwargs.get("shot", ""),
+                    task_name,
+                    kwargs.get("format", "png"),
+                )
+            return path or ""
+        except (OSError, TypeError, ValueError):
+            return ""
 
-    def load_latest(self, projekts_root, project, shot, subfolder, task, format,
+    def load_latest(self, projekts_root, project, shot, subfolder="comfy",
+                    task="comp", format="png",
                     browse_path=None, upload_image=None, filepath=None,
-                    on_missing="error", frame_mode="latest", frame=1001):
+                    on_missing="error", frame_mode="latest", frame=1001,
+                    folder=""):
         import torch
 
         # Priority 0: browse_path — absolute filesystem path typed by the user
@@ -254,15 +260,19 @@ class DigitImageLoader:
                         "result": (torch.from_numpy(empty).unsqueeze(0), "", 0)}
             raise ValueError(msg)
 
-        target_dir = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
+        folder_path = effective_folder(folder, subfolder, task)
+        target_dir = resolve_folder_dir(projekts_root, project, shot, folder_path)
         prefix = project[:5]
+        task_name = folder_task_name(folder_path)
 
         if frame_mode == "pinned":
             found_path, frame_num = self._find_frame(
-                target_dir, prefix, shot, task, format, frame
+                target_dir, prefix, shot, task_name, format, frame
             )
         else:
-            found_path, frame_num = self._find_latest(target_dir, prefix, shot, task, format)
+            found_path, frame_num = self._find_latest(
+                target_dir, prefix, shot, task_name, format
+            )
 
         if found_path is None:
             msg = f"(no frames found) in {target_dir}"
@@ -290,18 +300,17 @@ class DigitImageLoader:
         img_np = img_tensor[0].cpu().numpy()
         img_8bit = np.clip(255.0 * img_np[:, :, :3], 0, 255).astype(np.uint8)
         pil_img = Image.fromarray(img_8bit, mode="RGB")
-        if max(pil_img.size) > PREVIEW_MAX_EDGE:
-            pil_img.thumbnail((PREVIEW_MAX_EDGE, PREVIEW_MAX_EDGE), Image.Resampling.LANCZOS)
+        pil_img.thumbnail((PREVIEW_MAX_EDGE, PREVIEW_MAX_EDGE), Image.Resampling.LANCZOS)
         pil_img.save(preview_path, format="PNG")
 
         return {"filename": preview_name, "subfolder": "", "type": "temp"}
 
     @staticmethod
-    def _log_loaded(source_kind, path, img_tensor, frame):
-        height, width = img_tensor.shape[1:3]
+    def _log_loaded(source, path, image, frame):
+        height, width = image.shape[1:3]
         logger.info(
-            "image_loaded source=%s path=%s width=%d height=%d frame=%d",
-            source_kind,
+            "digit_image_loaded source=%s path=%s width=%s height=%s frame=%s",
+            source,
             path,
             width,
             height,

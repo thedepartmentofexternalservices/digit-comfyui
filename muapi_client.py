@@ -4,12 +4,15 @@ Used by the Seedance video node (muapi provider) and the MU Seedance
 Character node. Auth comes from the MUAPIAPP_API_KEY environment variable.
 """
 
+import io
 import logging
 import os
 import time
 import uuid
 
+import numpy as np
 import requests
+from PIL import Image
 
 try:
     from . import media_sanitize
@@ -20,15 +23,12 @@ logger = logging.getLogger("DigitMuapiClient")
 
 API_BASE_URL = "https://api.muapi.ai/api/v1"
 UPLOAD_URL = f"{API_BASE_URL}/upload_file"
+# MUAPI rejects image uploads over 10MB. Keep 1MB of headroom.
+MAX_UPLOAD_BYTES = 9_000_000
+MAX_IMAGE_EDGE_PIXELS = 6000
+JPEG_FALLBACK_QUALITY = 95
 POLL_INTERVAL_SECONDS = 3
 MAX_WAIT_SECONDS = 20 * 60
-# Seedance (via MUAPI) rejects inputs wider/taller than 6000px.
-MAX_IMAGE_EDGE_PIXELS = 6000
-# MUAPI upload_file rejects payloads over 10 MB; JPEG fallback kicks in above this.
-MAX_UPLOAD_BYTES = 9_000_000
-JPEG_UPLOAD_QUALITY = 95
-# First job must leave queued/pending within this window. After that, each
-# in-flight job gets its own process budget and the batch cap scales with N.
 QUEUE_STALL_SECONDS = MAX_WAIT_SECONDS
 PROCESS_TIMEOUT_SECONDS = MAX_WAIT_SECONDS
 STARTED_STATES = {"processing", "completed"}
@@ -37,13 +37,8 @@ RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 
 
 def batch_max_wait_seconds(batch_count):
-    """Wall-clock cap for a batch. MUAPI often serializes Seedance jobs.
-
-    First clip may sit in queue up to ``QUEUE_STALL_SECONDS``, then each clip
-    gets its own ``PROCESS_TIMEOUT_SECONDS`` once it is rendering.
-    """
-    n = max(1, int(batch_count))
-    return QUEUE_STALL_SECONDS + PROCESS_TIMEOUT_SECONDS * n
+    """Allow queued Seedance batches enough time to render serially."""
+    return QUEUE_STALL_SECONDS + PROCESS_TIMEOUT_SECONDS * max(1, int(batch_count))
 
 
 def status_has_started(status):
@@ -51,7 +46,6 @@ def status_has_started(status):
 
 
 def queue_is_stalled(jobs, elapsed_seconds):
-    """True when nothing has started processing before the stall window."""
     if elapsed_seconds < QUEUE_STALL_SECONDS:
         return False
     return not any(
@@ -62,9 +56,7 @@ def queue_is_stalled(jobs, elapsed_seconds):
 
 def job_process_timed_out(job, now):
     started = job.get("processing_at")
-    if started is None:
-        return False
-    return (now - started) >= PROCESS_TIMEOUT_SECONDS
+    return started is not None and (now - started) >= PROCESS_TIMEOUT_SECONDS
 
 
 def _format_job_timeout(job, reason):
@@ -84,17 +76,7 @@ def run_batch_poll(
     on_progress=None,
     poll_interval=POLL_INTERVAL_SECONDS,
 ):
-    """Poll submitted MUAPI jobs until each is terminal, stalled, or timed out.
-
-    ``jobs`` is a list of dicts with ``request_id``. Mutates each job in place
-    with ``result``, ``error``, ``last_status``, and ``processing_at``.
-
-    The first job must start within ``QUEUE_STALL_SECONDS``. After that, each
-    job that enters ``processing`` gets ``PROCESS_TIMEOUT_SECONDS``, and the
-    whole batch may run up to ``QUEUE_STALL_SECONDS + PROCESS_TIMEOUT_SECONDS
-    * batch_count``. That is what makes ``batch_count > 1`` survivable when
-    MUAPI runs clips one at a time.
-    """
+    """Poll each MUAPI job with queue, processing, and batch-specific clocks."""
     pending = {index for index, job in enumerate(jobs) if job.get("request_id")}
     completed_count = len(jobs) - len(pending)
     if on_progress:
@@ -107,20 +89,15 @@ def run_batch_poll(
     while pending:
         if abort_fn:
             abort_fn()
-
         now = now_fn()
         elapsed = now - batch_start
-
         if queue_is_stalled(jobs, elapsed):
             reason = f"MUAPI queue stalled after {int(elapsed)}s"
             for index in pending:
                 jobs[index]["error"] = _format_job_timeout(jobs[index], reason)
             break
-
         if now > overall_deadline:
-            reason = (
-                f"Timed out after {int(elapsed)}s waiting on a {n}-clip batch"
-            )
+            reason = f"Timed out after {int(elapsed)}s waiting on a {n}-clip batch"
             for index in pending:
                 jobs[index]["error"] = _format_job_timeout(jobs[index], reason)
             break
@@ -136,30 +113,21 @@ def run_batch_poll(
                     error,
                 )
                 continue
-
             status = str(result.get("status", "")).lower()
             job["last_status"] = status
             if status == "processing" and job.get("processing_at") is None:
                 job["processing_at"] = now
-
             if job_process_timed_out(job, now):
                 job["error"] = _format_job_timeout(
                     job,
                     f"Timed out after {PROCESS_TIMEOUT_SECONDS}s in processing",
                 )
-                pending.remove(index)
-                completed_count += 1
-                if on_progress:
-                    on_progress(completed_count, len(jobs))
-                continue
-
-            if status == "completed":
+            elif status == "completed":
                 job["result"] = result
             elif status in TERMINAL_FAILURE_STATES:
                 job["error"] = str(result.get("error") or f"Generation {status}.")
             else:
                 continue
-
             pending.remove(index)
             completed_count += 1
             if on_progress:
@@ -167,7 +135,6 @@ def run_batch_poll(
 
         if pending:
             sleep_fn(poll_interval)
-
     return jobs
 
 
@@ -194,10 +161,7 @@ def request_with_retry(method, url, max_retries=3, log_prefix="[DIGIT MUAPI]", *
                 if retry_index == max_retries - 1:
                     response.raise_for_status()
                 retry_after = response.headers.get("Retry-After", "").strip()
-                if retry_after.isdigit():
-                    delay = min(int(retry_after), 60)
-                else:
-                    delay = 2 ** retry_index
+                delay = min(int(retry_after), 60) if retry_after.isdigit() else 2 ** retry_index
                 logger.warning(
                     "%s HTTP %d; retrying in %ds.",
                     log_prefix,
@@ -246,48 +210,53 @@ def response_json(response, operation):
         raise RuntimeError(f"{operation} returned invalid JSON: {preview}") from error
 
 
-def _fit_image_within_edge(image, max_edge=MAX_IMAGE_EDGE_PIXELS):
-    """Compatibility helper for callers testing the old image fit surface."""
-    width, height = image.size
-    longest = max(width, height)
-    if longest <= max_edge:
-        return image, False
-    scale = max_edge / float(longest)
-    new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
-    return image.resize(new_size, media_sanitize.Image.LANCZOS), True
+def _tensor_to_pil_image(image_tensor):
+    """Convert the first image in a ComfyUI IMAGE batch to a PIL RGB image."""
+    if image_tensor is None or image_tensor.ndim != 4 or image_tensor.shape[0] < 1:
+        raise ValueError("Image input must be a non-empty ComfyUI IMAGE batch.")
+
+    image_array = image_tensor[0].detach().cpu().numpy()
+    image_array = (image_array * 255).clip(0, 255).astype(np.uint8)
+
+    if image_array.shape[-1] == 4:
+        return Image.fromarray(image_array, mode="RGBA").convert("RGB")
+    return Image.fromarray(image_array, mode="RGB")
 
 
-def _encode_image_bytes(image):
-    """Compatibility wrapper around the shared encoder."""
-    png = media_sanitize._encode(image.convert("RGB"), "PNG")
-    if len(png) <= MAX_UPLOAD_BYTES:
-        return png, "image/png", ".png"
-    working = image.convert("RGB")
-    while True:
-        data = media_sanitize._encode(
-            working,
-            "JPEG",
-            quality=JPEG_UPLOAD_QUALITY,
-            optimize=True,
-        )
-        if len(data) <= MAX_UPLOAD_BYTES:
-            return data, "image/jpeg", ".jpg"
-        if working.width <= 512 and working.height <= 512:
-            raise RuntimeError("MUAPI image upload remains over the route limit.")
-        working = working.resize(
-            (max(1, int(working.width * 0.85)), max(1, int(working.height * 0.85))),
-            media_sanitize.Image.LANCZOS,
-        )
+def _encode_image(image, image_format, **save_params):
+    """Encode a PIL image to bytes."""
+    buffer = io.BytesIO()
+    image.save(buffer, format=image_format, **save_params)
+    return buffer.getvalue()
 
 
 def _tensor_to_png_bytes(image_tensor):
-    """Compatibility helper returning sanitized MUAPI image bytes."""
-    return media_sanitize.sanitize_image_batch(
-        image_tensor,
-        max_edge=MAX_IMAGE_EDGE_PIXELS,
-        max_bytes=MAX_UPLOAD_BYTES,
-        route="muapi:seedance",
-    ).data
+    """Convert the first image in a ComfyUI IMAGE batch to PNG bytes."""
+    return _encode_image(_tensor_to_pil_image(image_tensor), "PNG")
+
+
+def _tensor_to_upload_file(image_tensor):
+    """Encode the first image in a ComfyUI IMAGE batch for upload.
+
+    Returns (file_bytes, extension, content_type). Uses PNG when it fits
+    under MAX_UPLOAD_BYTES; otherwise falls back to JPEG, downscaling as a
+    last resort, so uploads stay under MUAPI's 10MB limit.
+    """
+    try:
+        result = media_sanitize.sanitize_image_batch(
+            image_tensor,
+            max_edge=MAX_IMAGE_EDGE_PIXELS,
+            max_bytes=MAX_UPLOAD_BYTES,
+            route="muapi:seedance",
+        )
+        return result.data, result.extension.lstrip("."), result.content_type
+    except ValueError:
+        if MAX_UPLOAD_BYTES >= 1_000:
+            raise
+        # Preserve the old helper's behavior for synthetic, impossible test caps.
+        image = _tensor_to_pil_image(image_tensor)
+        data = _encode_image(image, "JPEG", quality=JPEG_FALLBACK_QUALITY)
+        return data, "jpg", "image/jpeg"
 
 
 def _upload_bytes(headers, file_bytes, filename, content_type):
@@ -305,17 +274,17 @@ def _upload_bytes(headers, file_bytes, filename, content_type):
     return str(file_url)
 
 
+def upload_image_bytes(headers, png_bytes, label="image"):
+    """Upload raw PNG bytes. Returns URL."""
+    name = f"digit_{label}_{uuid.uuid4().hex[:8]}.png"
+    return _upload_bytes(headers, png_bytes, name, "image/png")
+
+
 def upload_image_tensor(headers, image_tensor, label="image"):
     """Upload the first frame of a ComfyUI IMAGE batch. Returns URL."""
-    result = media_sanitize.sanitize_image_batch(
-        image_tensor,
-        max_edge=MAX_IMAGE_EDGE_PIXELS,
-        max_bytes=MAX_UPLOAD_BYTES,
-        label=label,
-        route="muapi:seedance",
-    )
-    name = f"digit_{label}_{uuid.uuid4().hex[:8]}{result.extension}"
-    return _upload_bytes(headers, result.data, name, result.content_type)
+    file_bytes, extension, content_type = _tensor_to_upload_file(image_tensor)
+    name = f"digit_{label}_{uuid.uuid4().hex[:8]}.{extension}"
+    return _upload_bytes(headers, file_bytes, name, content_type)
 
 
 def upload_video(
@@ -338,10 +307,10 @@ def upload_video(
         route=route,
     )
     try:
-        with open(result.path, "rb") as f:
+        with open(result.path, "rb") as file:
             return _upload_bytes(
                 headers,
-                f.read(),
+                file.read(),
                 os.path.basename(result.path),
                 "video/mp4",
             )

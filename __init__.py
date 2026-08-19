@@ -7,6 +7,7 @@ from .seedream_image_node import DigitSeedreamImage
 from .veo_video_node import DigitVeoVideo
 from .omni_video_node import DigitOmniVideo
 from .video_saver_node import DigitVideoSaver
+from .uber_saver_node import DigitUberSaver
 from .drag_crop_node import DigitDragCrop, DigitCropInfo
 from .srt_maker_node import DigitSRTMaker
 from .srt_from_video_node import DigitSRTFromVideo, DigitBatchSRTFromVideo, DigitSRTTools, DigitSRTPreview
@@ -36,6 +37,7 @@ from .elevenlabs_nodes import (
     DigitElevenLabsDialogue,
 )
 from .seedance_video_node import DigitDanceVideo, DigitReplicateSeedance
+from .h3_video_node import DigitH3Video
 from .mu_seedance_character_node import DigitMuSeedanceCharacter
 from .shade_nodes import ShadeMount, ShadeSave
 from .drift_gate_node import DigitDriftGate, DigitDriftGateFromPaths
@@ -51,6 +53,7 @@ NODE_CLASS_MAPPINGS = {
     "DigitVeoVideo": DigitVeoVideo,
     "DigitOmniVideo": DigitOmniVideo,
     "DigitVideoSaver": DigitVideoSaver,
+    "DigitUberSaver": DigitUberSaver,
     "DigitDragCrop": DigitDragCrop,
     "DigitCropInfo": DigitCropInfo,
     "DigitSRTMaker": DigitSRTMaker,
@@ -90,6 +93,7 @@ NODE_CLASS_MAPPINGS = {
     "DigitElevenLabsDialogue": DigitElevenLabsDialogue,
     "DigitDanceVideo": DigitDanceVideo,
     "DigitReplicateSeedance": DigitReplicateSeedance,
+    "DigitH3Video": DigitH3Video,
     "DigitMuSeedanceCharacter": DigitMuSeedanceCharacter,
     # Shade.inc nodes
     "ShadeMount": ShadeMount,
@@ -109,6 +113,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DigitVeoVideo": "DIGIT Veo Video",
     "DigitOmniVideo": "DIGIT Gemini Omni Video",
     "DigitVideoSaver": "DIGIT Video Saver",
+    "DigitUberSaver": "DIGIT Uber Saver",
     "DigitDragCrop": "DIGIT Drag Crop",
     "DigitCropInfo": "DIGIT Crop Info",
     "DigitSRTMaker": "DIGIT SRT Maker",
@@ -146,8 +151,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DigitElevenLabsVoiceClone": "DIGIT ElevenLabs Voice Clone",
     "DigitElevenLabsSTS": "DIGIT ElevenLabs Speech to Speech",
     "DigitElevenLabsDialogue": "DIGIT ElevenLabs Dialogue",
-    "DigitDanceVideo": "DIGIT Seedance Video",
+    "DigitDanceVideo": "DIGIT Seedance Video (2.0 / 2.5)",
     "DigitReplicateSeedance": "DIGIT Seedance Video (Replicate) [deprecated]",
+    "DigitH3Video": "DIGIT MiniMax Video",
     "DigitMuSeedanceCharacter": "DIGIT MU Seedance 2 Character",
     # Shade.inc nodes
     "ShadeMount": "Shade Mount",
