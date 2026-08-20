@@ -28,6 +28,30 @@ In the custom_nodes git task:
 
 `force: true` discards cherry-picks and dirty trees. After the play, confirm with `GET /digit/health` — `seedance_models` must include `seedance-2.5`.
 
+## ComfyUI core pin: `v0.15.1`
+
+Travis workflows saved on ComfyUI 0.15.1 flag core `LoadImage` as missing on older fleet boxes. Pin the **core** checkout, not just `comfyui-digit`.
+
+Tag: `v0.15.1`
+SHA: `3dd10a59c00248d00f0cb0ab794ff1bb9fb00a5f`
+Frontend: `comfyui-frontend-package==1.39.19`
+
+In `roles/comfyui_gcp/defaults/main.yml` (digit-infra-ansible):
+
+```yaml
+comfyui_version: v0.15.1
+```
+
+The git task that clones `/opt/comfyui` must use that version (tag or SHA). A leftover older SHA will rewind the fleet on the next `--tags comfyui` play.
+
+From a machine with `gcloud` / IAP (this Cloud Agent cannot reach the VMs):
+
+```bash
+GCP_PROJECT=digit-sandbox USE_IAP=1 ./scripts/deploy-gcp-comfyui-core.sh
+```
+
+Confirm each host with `GET /digit/health` — `comfyui_version` must be `0.15.1`. Canary `comfyui-01` first, then 00/02–06. Stopped `comfy*` boxes get the pin when they boot if ansible is updated.
+
 Flame, studio, and Mac ComfyUI installs are not GCP `comfy*` VMs. Run this on each of those hosts (both Easy-Install and Documents/ComfyUI checkouts on the MBP):
 
 ```bash
@@ -44,7 +68,9 @@ Then relaunch ComfyUI and hard-refresh the browser.
   PR + merge to master   ------>    force-reset every checkout to origin/master
   scripts/sync-comfyui-digit.sh      (local / Flame / Mac)
   scripts/deploy-gcp-comfyui.sh      (running GCP comfy* VMs)
+  scripts/deploy-gcp-comfyui-core.sh (pin /opt/comfyui to v0.15.1)
   ansible git version: master        force: true  (do not pin a SHA)
+  ansible comfyui_version: v0.15.1   (core pin; SHA 3dd10a59)
   FAL_KEY on VM            <------    Ansible vault → /etc/digit/comfyui-env
                                       or systemd EnvironmentFile
   run_h3_integration_on_vm ------>   post-deploy verify on canary host

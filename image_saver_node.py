@@ -155,7 +155,8 @@ async def get_folders(request):
     shot = request.rel_url.query.get("shot", "")
     if not project or not shot:
         return web.json_response([""], status=400)
-    return _json_scan(scan_shot_folders(root, project, shot))
+    refresh = request.rel_url.query.get("refresh") == "1"
+    return _json_scan(scan_shot_folders(root, project, shot, refresh=refresh))
 
 
 @PromptServer.instance.routes.get("/digit/output_preview")

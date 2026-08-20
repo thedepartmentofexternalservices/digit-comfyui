@@ -53,6 +53,8 @@ def test_input_types_use_one_union_media_socket():
         "media", "projekts_root", "project", "shot", "folder", "name",
     ]
     assert types["required"]["media"][0] == "IMAGE,VIDEO,VIDEO_PATHS"
+    assert types["required"]["project"][0] == [""]
+    assert types["required"]["shot"][0] == [""]
     assert "optional" not in types
     assert types["required"]["tonemap"][0][0] == "sRGB"
     assert types["required"]["quality"][1]["default"] == 100

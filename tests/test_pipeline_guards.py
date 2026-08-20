@@ -12,6 +12,7 @@ from digit_loader import load_digit_module
 image_saver_node = load_digit_module("image_saver_node")
 image_loader_node = load_digit_module("image_loader_node")
 video_saver_node = load_digit_module("video_saver_node")
+uber_saver_node = load_digit_module("uber_saver_node")
 
 
 class FakeTensorImage:
@@ -183,6 +184,7 @@ def test_input_types_does_not_bake_no_shots_found(tmp_path, monkeypatch):
         image_saver_node.DigitImageSaver,
         image_loader_node.DigitImageLoader,
         video_saver_node.DigitVideoSaver,
+        uber_saver_node.DigitUberSaver,
     ):
         types = cls.INPUT_TYPES()
         shot = types["required"]["shot"]

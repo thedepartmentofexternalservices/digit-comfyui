@@ -1,7 +1,7 @@
 """One destination-first saver for DIGIT images and videos."""
 
 from .image_saver_node import DigitImageSaver
-from .projekts_utils import combo_choices, get_available_projekts_roots, scan_projects
+from .projekts_utils import get_available_projekts_roots
 from .video_saver_node import DigitVideoSaver
 
 
@@ -17,14 +17,12 @@ class DigitUberSaver:
     @classmethod
     def INPUT_TYPES(cls):
         available_roots = get_available_projekts_roots() or [""]
-        first_root = available_roots[0]
-        projects = combo_choices(scan_projects(first_root)) if first_root else [""]
 
         return {
             "required": {
                 "media": ("IMAGE,VIDEO,VIDEO_PATHS",),
                 "projekts_root": (available_roots,),
-                "project": (projects,),
+                "project": ([""],),
                 "shot": ([""],),
                 "folder": (["comfy/comp"],),
                 "name": ("STRING", {

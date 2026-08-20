@@ -97,6 +97,14 @@ def combo_choices(items):
     return cleaned if cleaned else [""]
 
 
+def is_cacheable_scan(items):
+    """True when a scan found real folders and is safe to reuse briefly."""
+    names = list(items) if items else []
+    if not names or is_storage_unavailable(names):
+        return False
+    return any(name and not is_placeholder(name) for name in names)
+
+
 def validate_segment(name, value):
     """Reject empty, placeholder, or path-escaping pipeline segments.
 
@@ -188,9 +196,16 @@ def _cached_scan(key, scan_fn):
     cached = _scan_cache.get(key)
     if cached and now - cached[0] < _SCAN_CACHE_TTL:
         return list(cached[1])
-    result = scan_fn()
-    _scan_cache[key] = (now, tuple(result))
-    return list(result)
+    result = list(scan_fn())
+    if is_cacheable_scan(result):
+        _scan_cache[key] = (now, tuple(result))
+        return result
+    # Keep the last good list through a LucidLink blip instead of freezing
+    # "(no shots found)" / storage errors for the full TTL.
+    if cached and is_cacheable_scan(cached[1]):
+        return list(cached[1])
+    _scan_cache.pop(key, None)
+    return result
 
 
 def _scan_projects_uncached(projekts_root):
@@ -346,7 +361,7 @@ def resolve_folder_dir(projekts_root, project, shot, folder):
     return target_dir
 
 
-def scan_shot_folders(projekts_root, project, shot):
+def _scan_shot_folders_uncached(projekts_root, project, shot):
     """Existing folders under a shot, as relative paths at any depth."""
     try:
         validate_segment("project", project)
@@ -382,6 +397,17 @@ def scan_shot_folders(projekts_root, project, shot):
     return found if found else [""]
 
 
+def scan_shot_folders(projekts_root, project, shot, refresh=False):
+    """Return nested shot folders, caching Lucid/FUSE walks briefly."""
+    key = ("folders", projekts_root, project, shot)
+    if refresh:
+        invalidate_scan_cache(*key)
+    return _cached_scan(
+        key,
+        lambda: _scan_shot_folders_uncached(projekts_root, project, shot),
+    )
+
+
 def create_folder_dir(projekts_root, project, shot, folder):
     """Create a folder path under an existing shot. Project and shot must exist."""
     if not projekts_root:
@@ -395,6 +421,7 @@ def create_folder_dir(projekts_root, project, shot, folder):
         raise FileNotFoundError(f"shot not found: {shot}")
     target = resolve_folder_dir(projekts_root, project, shot, folder)
     os.makedirs(target, exist_ok=True)
+    invalidate_scan_cache("folders", projekts_root, project, shot)
     invalidate_scan_cache("children", projekts_root, project, shot)
     logger.info("projekts_folder_created path=%s", target)
     return target
@@ -519,6 +546,7 @@ def create_shot_dir(projekts_root, project, shot, subfolder=None, task=None):
         target = resolve_pipeline_dir(projekts_root, project, shot, subfolder, task)
         os.makedirs(target, exist_ok=True)
         invalidate_scan_cache("shots", projekts_root, project)
+        invalidate_scan_cache("folders", projekts_root, project, shot)
         invalidate_scan_cache("children", projekts_root, project, shot)
         logger.info("projekts_shot_created path=%s", target)
         return target
@@ -527,6 +555,7 @@ def create_shot_dir(projekts_root, project, shot, subfolder=None, task=None):
         _reject(f"Shot path escapes PROJEKTS root {projekts_root!r}")
     os.makedirs(shot_dir, exist_ok=True)
     invalidate_scan_cache("shots", projekts_root, project)
+    invalidate_scan_cache("folders", projekts_root, project, shot)
     logger.info("projekts_shot_created path=%s", shot_dir)
     return shot_dir
 
