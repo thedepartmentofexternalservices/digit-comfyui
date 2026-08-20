@@ -1012,6 +1012,14 @@ gcloud config set project YOUR_PROJECT_ID
 
 That resets **every** `comfyui-digit` checkout on each running `comfy*` VM to `origin/master` (cherry-picks included) and restarts `comfyui`. Stopped VMs are listed, not started.
 
+To pin **ComfyUI core** to 0.15.1 (fixes the Travis `LoadImage` missing-node dialog):
+
+```bash
+USE_IAP=1 ./scripts/deploy-gcp-comfyui-core.sh
+```
+
+That checks out tag `v0.15.1` (`3dd10a59`) under `/opt/comfyui`, upgrades the 0.15.1 frontend packages, and restarts `comfyui`. Bump `comfyui_version` in digit-infra-ansible to the same tag or the next `--tags comfyui` play rewinds the fleet.
+
 On Flame, studio, or a Mac (paths auto-discovered, including Easy-Install):
 
 ```bash
