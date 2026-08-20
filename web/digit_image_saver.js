@@ -287,8 +287,15 @@ app.registerExtension({
             const delay = RETRY_MS[retryIndex];
             retryIndex += 1;
             retryTimer = setTimeout(() => {
-                refreshAll();
+                refreshAll(true);
             }, delay);
+        }
+
+        function retryableScanError(message) {
+            const err = new Error(message);
+            err.status = 503;
+            err.retryMessage = message;
+            return err;
         }
 
         async function fetchJson(url) {
@@ -321,7 +328,7 @@ app.registerExtension({
             if (gen !== refreshGen) return "";
             if (isSentinelList(projects)) {
                 keepValueInOptions(projectWidget, []);
-                return "No projects in this root.";
+                throw retryableScanError("Projects not listed yet");
             }
             keepValueInOptions(projectWidget, projects);
             return "";
@@ -343,13 +350,17 @@ app.registerExtension({
             );
             if (gen !== refreshGen) return "";
             if (isSentinelList(shots)) {
-                keepValueInOptions(shotWidget, [], false);
-                if (resetIfMissing) shotWidget.value = "";
-                const saved = shotWidget.value;
-                if (!resetIfMissing && isUsableName(saved)) {
-                    return `Saved shot ${saved} is not in this project.`;
+                keepValueInOptions(shotWidget, [], !resetIfMissing);
+                if (resetIfMissing) {
+                    shotWidget.value = "";
+                    return "No shots yet. Click + Shot.";
                 }
-                return "No shots yet. Click + Shot.";
+                const saved = shotWidget.value;
+                throw retryableScanError(
+                    isUsableName(saved)
+                        ? `Keeping shot ${saved} while shots load`
+                        : "Shots not listed yet"
+                );
             }
             keepValueInOptions(shotWidget, shots, !resetIfMissing);
             if (resetIfMissing && !shots.includes(shotWidget.value)) {
@@ -368,6 +379,7 @@ app.registerExtension({
         async function refreshFolders(gen, opts = {}) {
             if (!folderWidget) return "";
             const resetIfMissing = Boolean(opts.resetIfMissing);
+            const forceRefresh = Boolean(opts.forceRefresh);
             const root = opts.root !== undefined ? opts.root : rootWidget.value;
             const project = opts.project !== undefined ? opts.project : projectWidget.value;
             const shot = opts.shot !== undefined ? opts.shot : shotWidget.value;
@@ -377,7 +389,7 @@ app.registerExtension({
                 return "";
             }
             const folders = await fetchJson(
-                `/digit/folders?root=${encodeURIComponent(root)}&project=${encodeURIComponent(project)}&shot=${encodeURIComponent(shot)}`
+                `/digit/folders?root=${encodeURIComponent(root)}&project=${encodeURIComponent(project)}&shot=${encodeURIComponent(shot)}${forceRefresh ? "&refresh=1" : ""}`
             );
             if (gen !== refreshGen) return "";
             const usable = isSentinelList(folders) ? ["comfy/comp"] : seedFolders(folders);
@@ -403,7 +415,7 @@ app.registerExtension({
                 if (isHasShotNode) {
                     shotWarning = await refreshShots(gen, { forceRefresh });
                     if (gen !== refreshGen) return;
-                    await refreshFolders(gen);
+                    await refreshFolders(gen, { forceRefresh });
                     if (gen !== refreshGen) return;
                 }
                 if (gen !== refreshGen) return;
@@ -412,9 +424,8 @@ app.registerExtension({
                 scheduleOutputPreview();
             } catch (err) {
                 if (gen !== refreshGen) return;
-                const reason = err && err.status
-                    ? `Refresh failed (${err.status})`
-                    : "Refresh failed";
+                const reason = (err && err.retryMessage)
+                    || (err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
                 scheduleRetry(reason);
             }
         }
@@ -437,7 +448,10 @@ app.registerExtension({
                 scheduleOutputPreview(true);
             } catch (err) {
                 if (gen !== refreshGen) return;
-                scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
+                scheduleRetry(
+                    (err && err.retryMessage)
+                    || (err && err.status ? `Refresh failed (${err.status})` : "Refresh failed")
+                );
             }
         }
 
@@ -458,7 +472,10 @@ app.registerExtension({
                 scheduleOutputPreview(true);
             } catch (err) {
                 if (gen !== refreshGen) return;
-                scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
+                scheduleRetry(
+                    (err && err.retryMessage)
+                    || (err && err.status ? `Refresh failed (${err.status})` : "Refresh failed")
+                );
             }
         }
 
@@ -495,7 +512,10 @@ app.registerExtension({
                 scheduleOutputPreview(true);
             } catch (err) {
                 if (gen !== refreshGen) return;
-                scheduleRetry(err && err.status ? `Refresh failed (${err.status})` : "Refresh failed");
+                scheduleRetry(
+                    (err && err.retryMessage)
+                    || (err && err.status ? `Refresh failed (${err.status})` : "Refresh failed")
+                );
             }
         }
 

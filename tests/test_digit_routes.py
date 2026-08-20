@@ -196,7 +196,7 @@ def test_folders_lists_nested_paths(tmp_path, monkeypatch):
         (shot_dir / "plates").mkdir()
         listed = await client.get(
             "/digit/folders",
-            params={"root": root, "project": "12345_demo", "shot": "sh010"},
+            params={"root": root, "project": "12345_demo", "shot": "sh010", "refresh": "1"},
         )
         missing = await client.get(
             "/digit/folders",

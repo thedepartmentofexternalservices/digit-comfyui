@@ -63,6 +63,57 @@ def test_invalidate_scan_cache_by_prefix(tmp_path):
     assert ("projects", str(root)) not in projekts_utils._scan_cache
 
 
+def test_scan_shots_does_not_cache_empty_or_storage_sentinels(tmp_path):
+    root = tmp_path / "PROJEKTS"
+    project = root / "12345_demo"
+    project.mkdir(parents=True)
+    projekts_utils.invalidate_scan_cache()
+
+    assert projekts_utils.scan_shots(str(root), "12345_demo") == ["(no shots found)"]
+    assert ("shots", str(root), "12345_demo") not in projekts_utils._scan_cache
+
+    (project / "shots" / "sh010").mkdir(parents=True)
+    assert projekts_utils.scan_shots(str(root), "12345_demo") == ["sh010"]
+
+
+def test_scan_shots_keeps_last_good_list_through_storage_blip(tmp_path):
+    root = tmp_path / "PROJEKTS"
+    (root / "12345_demo" / "shots" / "sh010").mkdir(parents=True)
+    projekts_utils.invalidate_scan_cache()
+    assert projekts_utils.scan_shots(str(root), "12345_demo") == ["sh010"]
+
+    key = ("shots", str(root), "12345_demo")
+    cached_at, values = projekts_utils._scan_cache[key]
+    projekts_utils._scan_cache[key] = (cached_at - 31.0, values)
+
+    def boom(_path):
+        raise OSError(107, "Transport endpoint is not connected")
+
+    with patch.object(projekts_utils.os, "listdir", side_effect=boom):
+        with patch.object(projekts_utils.time, "sleep"):
+            shots = projekts_utils.scan_shots(str(root), "12345_demo")
+    assert shots == ["sh010"]
+    cached = projekts_utils._scan_cache.get(key)
+    assert cached and cached[1] == ("sh010",)
+
+
+def test_scan_shot_folders_respects_refresh(tmp_path):
+    root = tmp_path / "PROJEKTS"
+    shot = root / "12345_demo" / "shots" / "sh010"
+    (shot / "comfy" / "comp").mkdir(parents=True)
+    projekts_utils.invalidate_scan_cache()
+    assert projekts_utils.scan_shot_folders(str(root), "12345_demo", "sh010") == [
+        "comfy", "comfy/comp",
+    ]
+    (shot / "plates").mkdir()
+    assert projekts_utils.scan_shot_folders(str(root), "12345_demo", "sh010") == [
+        "comfy", "comfy/comp",
+    ]
+    assert projekts_utils.scan_shot_folders(
+        str(root), "12345_demo", "sh010", refresh=True
+    ) == ["comfy", "comfy/comp", "plates"]
+
+
 def test_scan_shots_lists_shot_folders():
     with tempfile.TemporaryDirectory() as root:
         shots_dir = os.path.join(root, "12345_demo", "shots")
@@ -245,6 +296,10 @@ def test_combo_choices_strips_sentinels():
     assert projekts_utils.combo_choices([]) == [""]
     assert projekts_utils.combo_choices(["12345_demo", "(no projects found)"]) == ["12345_demo"]
     assert projekts_utils.combo_choices(["sh010", "ROUND_04"]) == ["sh010", "ROUND_04"]
+    assert projekts_utils.is_cacheable_scan(["sh010"]) is True
+    assert projekts_utils.is_cacheable_scan(["(no shots found)"]) is False
+    assert projekts_utils.is_cacheable_scan(["(storage unavailable)"]) is False
+    assert projekts_utils.is_cacheable_scan([""]) is False
 
 
 def test_parse_folder_and_next_output_path(tmp_path):
